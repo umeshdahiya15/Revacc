@@ -1,5 +1,10 @@
 /**
  * Lightweight fetch wrapper for the Revacc FastAPI backend.
+ *
+ * URL resolution (in priority order):
+ *   1. NEXT_PUBLIC_API_URL env var (set in Vercel dashboard when backend is deployed)
+ *   2. Same origin (when frontend & backend are on the same host, e.g. localhost)
+ *   3. http://localhost:8000 fallback (SSR / local dev)
  */
 
 import type { ActivityEntry, Epitope, Job } from "@/types";
@@ -13,8 +18,25 @@ export class ApiError extends Error {
   }
 }
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+function resolveApiBase(): string {
+  const envUrl = process.env.NEXT_PUBLIC_API_URL;
+  if (envUrl) return envUrl;
+
+  if (typeof window !== "undefined") {
+    const host = window.location.hostname;
+    // Running on localhost / 127.0.0.1 → assume backend is on the same machine
+    if (host === "localhost" || host === "127.0.0.1" || host === "") {
+      return `http://${window.location.hostname}:8000`;
+    }
+    // Deployed (Vercel, etc.) → same-origin backend
+    return window.location.origin;
+  }
+
+  // SSR fallback
+  return "http://localhost:8000";
+}
+
+const API_BASE_URL = resolveApiBase();
 
 export interface RequestOptions {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -38,6 +60,7 @@ export async function apiRequest<T>(
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
+        ...(API_BASE_URL.includes("ngrok") ? { "ngrok-skip-browser-warning": "true" } : {}),
         ...headers,
       },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -71,9 +94,9 @@ export async function apiRequest<T>(
 }
 
 export function wsUrl(jobId: string): string {
-  const host = API_BASE_URL.replace(/^https?:\/\//, "");
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${host}/ws/pipeline/${jobId}`;
+  const base = resolveApiBase();
+  const wsBase = base.replace(/^http/, "ws");
+  return `${wsBase}/ws/pipeline/${jobId}`;
 }
 
 export type PipelineAction = "start" | "pause" | "resume" | "stop";

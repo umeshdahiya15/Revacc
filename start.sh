@@ -1,122 +1,47 @@
 #!/usr/bin/env bash
-# ═══════════════════════════════════════════════════════════════════════════════
-# Revacc — One-command startup
-# Starts backend (FastAPI :8000) + frontend (Next.js :3000)
-# ═══════════════════════════════════════════════════════════════════════════════
+# Revacc — start backend + ngrok tunnel in one command.
+# Usage: ./start.sh          (backend on :8000, ngrok tunnel for backend)
+#        ./start.sh --all    (also start frontend on :3000)
 set -euo pipefail
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
-CYAN='\033[0;36m'; NC='\033[0m'
+BACKEND_PORT=8000
+FRONTEND_PORT=3000
 
-ROOT="$(cd "$(dirname "$0")" && pwd)"
-BACKEND="$ROOT/backend"
-LOG_DIR="$ROOT/.logs"
-PID_DIR="$ROOT/.pids"
+cleanup() { pkill -f "ngrok http" 2>/dev/null; pkill -f "uvicorn.*$BACKEND_PORT" 2>/dev/null; pkill -f "next dev" 2>/dev/null; }
+trap cleanup EXIT
 
-mkdir -p "$LOG_DIR" "$PID_DIR"
+echo "==> Starting backend on :$BACKEND_PORT …"
+cd "$(dirname "$0")/backend"
+MEV_CORS_ORIGINS="*" .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port "$BACKEND_PORT" &
+sleep 2
 
-log()  { echo -e "${CYAN}[revacc]${NC} $*"; }
-ok()   { echo -e "${GREEN}[revacc]${NC} $*"; }
-warn() { echo -e "${YELLOW}[revacc]${NC} $*"; }
-fail() { echo -e "${RED}[revacc]${NC} $*" >&2; exit 1; }
+echo "==> Starting ngrok tunnel for backend …"
+ngrok http "$BACKEND_PORT" --log=stdout --log-format=json > /tmp/ngrok-revacc.json 2>&1 &
+sleep 3
 
-# ── Cleanup ──────────────────────────────────────────────────────────────────
-cleanup() {
-  log "Shutting down..."
-  for f in "$PID_DIR"/*.pid; do
-    [ -f "$f" ] || continue
-    pid=$(cat "$f" 2>/dev/null)
-    [ -z "$pid" ] && continue
-    kill "$pid" 2>/dev/null && ok "Stopped $(basename "$f" .pid) (PID $pid)"
-    rm -f "$f"
-  done
-}
-trap cleanup EXIT INT TERM
+NGROK_URL=$(curl -s http://127.0.0.1:4040/api/tunnels | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+print(d['tunnels'][0]['public_url'])
+" 2>/dev/null || echo "")
 
-# ── Kill anything on ports ───────────────────────────────────────────────────
-free_port() {
-  local pids
-  pids=$(lsof -ti:"$1" 2>/dev/null || true)
-  if [ -n "$pids" ]; then
-    warn "Port $1 busy — killing"
-    echo "$pids" | xargs kill -9 2>/dev/null || true
-    sleep 1
-  fi
-}
-free_port 8000
-free_port 3000
+echo ""
+echo "============================================"
+echo "  Backend:   http://localhost:$BACKEND_PORT"
+echo "  Ngrok:     $NGROK_URL"
+echo "============================================"
+echo ""
+echo "  Open frontend: http://localhost:$FRONTEND_PORT"
+echo "  Or Vercel:     (set NEXT_PUBLIC_API_URL=$NGROK_URL)"
+echo ""
+echo "  Press Ctrl+C to stop everything."
+echo ""
 
-# ── Check deps ───────────────────────────────────────────────────────────────
-command -v python3 &>/dev/null || fail "python3 not found"
-command -v node    &>/dev/null || fail "node not found"
-command -v npm     &>/dev/null || fail "npm not found"
-
-# ── Backend venv + deps ─────────────────────────────────────────────────────
-if [ ! -d "$BACKEND/venv" ]; then
-  log "Creating Python venv..."
-  python3 -m venv "$BACKEND/venv"
+if [ "${1:-}" = "--all" ]; then
+  echo "==> Starting frontend on :$FRONTEND_PORT …"
+  cd "$(dirname "$0")"
+  NEXT_PUBLIC_API_URL="$NGROK_URL" npm run dev &
+  wait
+else
+  wait
 fi
-
-# Install deps inside a subshell so we don't pollute this shell
-(
-  source "$BACKEND/venv/bin/activate"
-  pip install --quiet --upgrade pip 2>/dev/null
-  pip install --quiet fastapi uvicorn pydantic websockets httpx biopython 2>/dev/null
-)
-
-# ── Node modules ─────────────────────────────────────────────────────────────
-if [ ! -d "$ROOT/node_modules" ]; then
-  log "Installing Node dependencies..."
-  cd "$ROOT" && npm install --silent
-fi
-
-# ── Start backend ────────────────────────────────────────────────────────────
-log "Starting backend on :8000..."
-(
-  source "$BACKEND/venv/bin/activate"
-  cd "$BACKEND"
-  exec python3 -m uvicorn app.main:app \
-    --host 0.0.0.0 --port 8000 --reload --log-level warning
-) > "$LOG_DIR/backend.log" 2>&1 &
-echo $! > "$PID_DIR/backend.pid"
-
-# ── Start frontend ───────────────────────────────────────────────────────────
-log "Starting frontend on :3000..."
-(
-  cd "$ROOT"
-  exec npx next dev --port 3000 --hostname 0.0.0.0
-) > "$LOG_DIR/frontend.log" 2>&1 &
-echo $! > "$PID_DIR/frontend.pid"
-
-# ── Wait for backend ─────────────────────────────────────────────────────────
-log "Waiting for backend..."
-for i in $(seq 1 20); do
-  curl -sf http://localhost:8000/api/health >/dev/null 2>&1 && break
-  sleep 1
-done
-curl -sf http://localhost:8000/api/health >/dev/null 2>&1 \
-  && ok "Backend  → http://localhost:8000  (docs: /docs)" \
-  || warn "Backend may still be starting — check $LOG_DIR/backend.log"
-
-# ── Wait for frontend ────────────────────────────────────────────────────────
-log "Waiting for frontend (first compile ~30-60s)..."
-for i in $(seq 1 90); do
-  curl -sf http://localhost:3000 >/dev/null 2>&1 && break
-  sleep 1
-done
-curl -sf http://localhost:3000 >/dev/null 2>&1 \
-  && ok "Frontend → http://localhost:3000" \
-  || warn "Frontend may still be compiling — check $LOG_DIR/frontend.log"
-
-echo ""
-echo -e "${GREEN}══════════════════════════════════════════════${NC}"
-echo -e "${GREEN}  Revacc is running!                          ${NC}"
-echo -e "${GREEN}  Frontend : http://localhost:3000             ${NC}"
-echo -e "${GREEN}  Backend  : http://localhost:8000             ${NC}"
-echo -e "${GREEN}  API Docs : http://localhost:8000/docs        ${NC}"
-echo -e "${GREEN}══════════════════════════════════════════════${NC}"
-echo ""
-echo "Logs: $LOG_DIR/"
-echo "Stop:  Ctrl+C"
-echo ""
-wait
