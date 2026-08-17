@@ -19,10 +19,17 @@ export class ApiError extends Error {
 }
 
 function resolveApiBase(): string {
+  // 1. Explicit env var (highest priority)
   const envUrl = process.env.NEXT_PUBLIC_API_URL;
   if (envUrl) return envUrl;
 
+  // 2. User-configured URL in Settings (localStorage)
   if (typeof window !== "undefined") {
+    try {
+      const saved = JSON.parse(localStorage.getItem("revacc:settings") ?? "{}");
+      if (saved.apiUrl) return saved.apiUrl;
+    } catch { /* ignore */ }
+
     const host = window.location.hostname;
     // Running on localhost / 127.0.0.1 → assume backend is on the same machine
     if (host === "localhost" || host === "127.0.0.1" || host === "") {
