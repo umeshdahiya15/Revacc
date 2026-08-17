@@ -252,8 +252,8 @@ export const HLA_MHC2_COMMON = [
   "HLA-DPB1*04:01",
 ];
 
-export const DEFAULT_HLA_MHC1 = ["HLA-A*02:01", "HLA-A*24:02", "HLA-B*07:02", "HLA-B*44:03", "HLA-C*07:01"];
-export const DEFAULT_HLA_MHC2 = ["HLA-DRB1*11:01", "HLA-DRB1*04:01"];
+export const DEFAULT_HLA_MHC1 = ["HLA-A*02:01", "HLA-A*24:02", "HLA-A*31:01", "HLA-B*07:02", "HLA-B*35:01", "HLA-B*44:03", "HLA-B*57:01", "HLA-C*04:01", "HLA-C*07:01"];
+export const DEFAULT_HLA_MHC2 = ["HLA-DRB1*03:01", "HLA-DRB1*04:01", "HLA-DRB1*07:01", "HLA-DRB1*11:01", "HLA-DRB1*15:01", "HLA-DQA1*05:01", "HLA-DPB1*04:01"];
 
 export const COVERAGE_REGIONS = [
   "Global",

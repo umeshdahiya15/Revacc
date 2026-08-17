@@ -2678,6 +2678,12 @@ async def run_7_1(session: dict, job, step) -> dict:
             scored += 1
 
     session["abc_predictions"] = {"targets": targets, "count": scored}
+
+    # Append B-cell linear epitopes to session["epitopes"] so 7-2/7-3/7-4 can score them
+    existing = session.get("epitopes") or []
+    bcell_eps = [t for t in targets if t.get("type") == "BCELL_LINEAR"]
+    session["epitopes"] = existing + bcell_eps
+
     return {
         "message": f"ABCpred (local BepiPred): scored {scored} targets",
         "scored": scored, "total": len(targets),
@@ -2729,6 +2735,12 @@ async def run_7_5(session: dict, job, step) -> dict:
             scored += 1
 
     session["ellipro_predictions"] = {"targets": targets, "count": scored}
+
+    # Append B-cell conformational epitopes to session["epitopes"] so 7-2/7-3/7-4 can score them
+    existing = session.get("epitopes") or []
+    bcell_conf = [t for t in targets if t.get("type") == "BCELL_CONFORMATIONAL"]
+    session["epitopes"] = existing + bcell_conf
+
     return {
         "message": f"Ellipro (local): scored {scored} targets",
         "scored": scored, "total": len(targets),
