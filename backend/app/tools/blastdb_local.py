@@ -251,7 +251,6 @@ def blastp_sync(
                 "-num_threads", str(min(4, os.cpu_count() or 1)),
             ],
             capture_output=True,
-            text=True,
         )
         if proc.returncode != 0:
             raise LocalBlastError(f"blastp failed: {proc.stderr[:400]}")
@@ -259,7 +258,7 @@ def blastp_sync(
         os.unlink(query_fasta)
 
     results: dict[str, ncbiblast.BlastResult] = {}
-    for line in proc.stdout.splitlines():
+    for line in proc.stdout.decode("latin-1").splitlines():
         parts = line.split("\t")
         if len(parts) < 10:
             continue

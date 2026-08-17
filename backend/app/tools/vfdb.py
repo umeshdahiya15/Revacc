@@ -118,10 +118,9 @@ def _run_blastp(query_fasta: str, db_name: str) -> list[VFDBHit]:
         ],
         check=True,
         capture_output=True,
-        text=True,
     )
     hits: list[VFDBHit] = []
-    for line in proc.stdout.splitlines():
+    for line in proc.stdout.decode("latin-1").splitlines():
         parts = line.split("\t")
         if len(parts) < 7:
             continue
