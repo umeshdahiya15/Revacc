@@ -34,3 +34,29 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Python backend
+backend/__pycache__/
+backend/**/__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+backend/.venv/
+backend/venv/
+
+# Backend runtime data
+backend/data/
+backend/*.db
+backend/*.sqlite
+backend/.cache/
+
+# Logs
+.logs/
+*.log
+
+# Generated reports
+*.pdf
+
+# BLAST databases (large binary files)
+backend/databases/
