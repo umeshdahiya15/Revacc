@@ -35,7 +35,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# Python backend
+ # Python backend
 backend/__pycache__/
 backend/**/__pycache__/
 *.pyc
@@ -44,12 +44,13 @@ backend/**/__pycache__/
 *.egg-info/
 backend/.venv/
 backend/venv/
+backend/.cache/
 
 # Backend runtime data
 backend/data/
 backend/*.db
 backend/*.sqlite
-backend/.cache/
+
 
 # Logs
 .logs/

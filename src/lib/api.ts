@@ -72,7 +72,8 @@ export async function apiRequest<T>(
 
 export function wsUrl(jobId: string): string {
   const host = API_BASE_URL.replace(/^https?:\/\//, "");
-  return `ws://${host}/ws/pipeline/${jobId}`;
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocol}//${host}/ws/pipeline/${jobId}`;
 }
 
 export type PipelineAction = "start" | "pause" | "resume" | "stop";
