@@ -1082,9 +1082,9 @@ def _assemble_mev_construct(epitopes: list[dict], linker_ctr: str, linker_htl: s
     Deterministic ordering by (type, sourceProtein, allele, start).
     Caps: CTL-20, HTL-12, B-cell-10.
     """
-    CTL_CAP = 20
-    HTL_CAP = 12
-    BCELL_CAP = 10
+    CTL_CAP = 25
+    HTL_CAP = 15
+    BCELL_CAP = 12
 
     ctl_epitopes = [e for e in epitopes if e.get("type") == "CTL"]
     htl_epitopes = [e for e in epitopes if e.get("type") == "HTL"]
@@ -1533,14 +1533,47 @@ async def run_11_1(session: dict, job, step) -> dict:
 # Phase 11-2: AlphaFold DB — Protein Structure Prediction (REAL API)
 # ---------------------------------------------------------------------------
 async def run_11_2(session: dict, job, step) -> dict:
-    """Fetch AlphaFold structure predictions for vaccine target proteins.
+    """3D structure prediction for the final MEV construct.
 
-    Uses the AlphaFold DB REST API (alphafold.ebi.ac.uk/api/prediction/UNIPROT_ID).
-    Stores predicted structures (PDB URLs) in session["structures"].
+    Uses local backbone modeling (Chou-Fasman + ideal dihedrals) to build
+    a full PDB model of the assembled multi-epitope vaccine construct.
+    Falls back to AlphaFold DB for individual vaccine target proteins if
+    no MEV construct is available.
 
-    Session keys read:  vaccine_targets (candidates with uniprotId)
+    Session keys read:  mev_construct (sequence), or vaccine_targets
     Session keys written:  structures
     """
+    mev_data = session.get("mev_construct") or {}
+    mev_seq = mev_data.get("sequence", "")
+
+    if mev_seq:
+        # Build backbone model of the final MEV construct
+        from .structure_local import predict_backbone_model
+        model = predict_backbone_model(mev_seq)
+        pdb_text = model.get("pdb", "")
+
+        session["structures"] = {
+            "targets_analyzed": 1,
+            "models_found": 1,
+            "structures": [{
+                "uniprotId": "MEV_CONSTRUCT",
+                "gene": "multi-epitope vaccine",
+                "organism": "synthetic",
+                "method": model.get("method", "mev_backbone_model_local"),
+                "pdbPreview": (pdb_text[:500] + "...") if len(pdb_text) > 500 else pdb_text,
+                "pdbFull": pdb_text,
+                "sequence_length": len(mev_seq),
+                "message": f"Backbone model built for {len(mev_seq)}-aa MEV construct",
+            }],
+        }
+        return {
+            "message": f"Backbone model built for {len(mev_seq)}-aa MEV construct",
+            "targets_analyzed": 1,
+            "models_found": 1,
+            "structures": session["structures"]["structures"],
+        }
+
+    # Fallback: fetch AlphaFold structures for individual vaccine targets
     from .alphafold import fetch_prediction, fetch_structure_pdb
 
     targets = session.get("vaccine_targets") or {}
@@ -1617,9 +1650,13 @@ async def run_11_3(session: dict, job, step) -> dict:
     structures = session.get("structures", {})
     struct_list = structures.get("structures", [])
 
-    # Fetch the first available full PDB from AlphaFold URL (not truncated preview)
+    # Fetch the first available full PDB (from backbone model or AlphaFold URL)
     pdb_text = None
     for s in struct_list:
+        # Check for full PDB from backbone model first
+        if s.get("pdbFull"):
+            pdb_text = s["pdbFull"]
+            break
         pdb_url = s.get("pdbUrl")
         if pdb_url:
             try:

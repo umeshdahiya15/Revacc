@@ -33,7 +33,7 @@ from .runner_additions import (
 
 StepRunner = Callable[[Job, Step], Awaitable[dict]]
 
-DEG_IDENTITY_THRESHOLD = float(os.environ.get("DEG_IDENTITY_THRESHOLD", "40"))
+DEG_IDENTITY_THRESHOLD = float(os.environ.get("DEG_IDENTITY_THRESHOLD", "30"))
 DEG_EVALUE_THRESHOLD = float(os.environ.get("DEG_EVALUE_THRESHOLD", "1e-5"))
 DEG_SCOPE = os.environ.get("DEG_SCOPE", "all").lower()
 

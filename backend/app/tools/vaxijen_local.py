@@ -43,8 +43,8 @@ LAG = 30
 NUM_PROPERTIES = 5
 
 THRESHOLDS = {
-    "bacteria": 0.40,
-    "virus": 0.40,
+    "bacteria": 0.50,
+    "virus": 0.50,
     "tumor": 0.50,
     "parasite": 0.50,
 }
