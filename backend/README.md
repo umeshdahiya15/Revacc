@@ -99,15 +99,74 @@ sync with `src/types/index.ts` and `src/lib/mockData.ts`. The frontend:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `MEV_CORS_ORIGINS` | local origins only | Comma-separated browser origins allowed to call the API; set `https://revacc.vercel.app` in Railway (never `*` in production) |
 | `MEV_STEP_TICK_MS` | `650` | Simulation speed per step (demo only) |
 | `MEV_MAX_STEPS_PER_TICK` | `1` | Steps advanced per engine tick |
-| `MEV_DATABASE_URL` | `postgresql://…` | Reserved for Sprint 1 (SQLAlchemy/Celery swap) |
-| `NCBI_EMAIL` | *(empty)* | Raised BLAST RID priority; recommended for sustained runs |
-| `NCBI_API_KEY` | *(empty)* | NCBI API key (get one at https://www.ncbi.nlm.nih.gov/account) |
+| `MEV_DATABASE_URL` | local placeholder | Reserved for the planned SQLAlchemy/Celery swap; the current repository is in-memory |
+| `NCBI_EMAIL` | `mev-pipeline@example.com` | Contact for NCBI BLAST; use a real address for sustained runs |
+| `NCBI_API_KEY` | *(empty)* | Optional NCBI API key (set as a Railway secret) |
 | `NCBI_TOOL` | `mev-pipeline` | Tool name sent to NCBI BLAST |
-| `EBI_EMAIL` | *(empty)* | Required by EBI Job Dispatcher (Phobius, etc.) |
-| `MEV_VFDB_CACHE` | `/tmp/mev-vfdb` | Path to VFDB core dataset cache directory |
+| `EBI_EMAIL` | `mev-pipeline@example.com` | Contact required by EBI Job Dispatcher (Phobius, etc.) |
+| `MEV_VFDB_CACHE` | `/tmp/mev-vfdb` | Writable path for the downloadable VFDB cache |
+| `MEV_BLAST_DB_CACHE` | `/tmp/mev-blastdb` | Writable path for downloaded local BLAST databases |
+| `MEV_PHOBIUS_CACHE` | `/tmp/mev-phobius-cache` | Writable path for Phobius results cache |
+| `PSORTB_BIN` / `PSORTB_PATH` | *(unset)* | Optional path to a PSORTb executable; missing PSORTb is reported as unavailable |
 | `ALPHAFOLD_EMAIL` | *(empty)* | Optional contact email for AlphaFold DB API requests |
+
+## Railway deployment
+
+The repository-root `Dockerfile` is the Railway service image; no `railway.json` or `railway.toml` is required. Set the Railway service root to the repository root and let Railway use the Dockerfile build. Do not add a custom development start command.
+
+Build and start behavior:
+
+- The image installs `backend/requirements.txt` into the system interpreter and copies only `backend/app`.
+- The production command is `uvicorn app.main:app --host 0.0.0.0 --port $PORT` (with a local-only `8000` fallback); it does not use `.venv` or `--reload`.
+- Railway's built-in `PORT` is dynamic. Do not hardcode or manually override it.
+- Configure the Railway health check path as `/api/health`. The full URL after a domain is assigned is `https://<railway-domain>/api/health` and should return JSON with `status: "ok"`.
+
+Required Railway environment variables for the confirmed deployment (do not include a trailing slash):
+
+```text
+MEV_CORS_ORIGINS=https://revacc.vercel.app
+```
+
+`MEV_CORS_ORIGINS` accepts comma-separated origins for additional Vercel preview/custom domains. Use explicit origins only; do not set it to `*` in Railway. `PORT` is supplied by Railway. Optional credentials such as `NCBI_API_KEY` belong only in Railway's secret/environment-variable UI, never in this repository or Dockerfile.
+
+Vercel handoff for the confirmed Railway service:
+
+```text
+NEXT_PUBLIC_API_URL=https://revacc-production.up.railway.app
+```
+
+The `https://` scheme is required for deployed frontend and backend URLs. Set `NEXT_PUBLIC_API_URL` in the Vercel project environment and redeploy, then verify the browser can call `https://revacc-production.up.railway.app/api/health` and open the WebSocket endpoint at `wss://revacc-production.up.railway.app/ws/pipeline/<job-id>`. The frontend already gives this variable priority and does not require an ngrok URL.
+
+Railway limitations and external prerequisites:
+
+- The image does not include BLAST+ executables or DEG, VFDB, and human-proteome databases. Local BLAST-backed steps therefore need a separately provisioned persistent volume/tool image, or use a supported remote path; unavailable tools must remain marked unavailable rather than being replaced with fabricated data.
+- The PSORTb Docker fallback cannot start a sibling Docker daemon from this container. A PSORTb binary must be separately installed and exposed through `PSORTB_BIN`/`PSORTB_PATH`; otherwise the application records the PSORTb residual and continues only with scientifically available localization results.
+- IEDB, EBI/Phobius, UniProt, NCBI, AlphaFold, and IEDB population-coverage calls require outbound network access and may rate-limit or be unavailable. Railway does not supply these services or their datasets.
+- The current repository uses an in-memory job store and `/tmp` caches. Jobs and downloaded caches are ephemeral across restarts/redeploys; `MEV_DATABASE_URL`, Redis, and Celery are not wired into the API process by this deployment change. Add and integrate persistent services separately before relying on durable production records.
+
+## Publish and deploy the GHCR image
+
+The workflow at `../.github/workflows/publish-backend-image.yml` builds the repository-root `Dockerfile` with GitHub Actions and publishes the image when `main` (the repository's default branch) or a version tag such as `v1.2.3` is pushed. It authenticates with the automatic `GITHUB_TOKEN`; no personal access token is stored in the repository.
+
+The image URL pattern is:
+
+```text
+ghcr.io/<owner>/<repository>
+```
+
+Replace `<owner>` and `<repository>` with the lowercase GitHub owner and repository name after the workflow runs. Useful tags are `:latest` and `:main` for the default branch, `:sha-<short-commit>` for an exact published commit, and `:1.2.3` (plus compatible major/minor tags) for a `v1.2.3` push. Do not substitute a real project URL until GitHub Actions has published the package.
+
+To use this image on Railway:
+
+1. Push `main` or a version tag and wait for the **Publish backend image** workflow to finish.
+2. In GitHub, open the repository's **Packages** entry, select the container package, and either change its visibility to **Public** or leave it private.
+3. In Railway, create/deploy a service from a container image. Use `ghcr.io/<owner>/<repository>:latest` (or pin `:sha-<short-commit>` / a version tag). For a private package, configure Railway's private-registry credentials for `ghcr.io` using a separately managed GitHub identity/token with package read access; keep that credential in Railway, never in this repository. Public packages do not require registry credentials.
+4. Keep the service health check at `/api/health` and let Railway provide `PORT`; the image already binds to `0.0.0.0` and uses that dynamic port.
+
+Alternatively, skip GHCR entirely: connect the GitHub repository as a Railway service, set the service root to the repository root, and let Railway build the existing `Dockerfile`. This GitHub-source deployment uses the same production command and dynamic `PORT` behavior and does not require registry credentials.
 
 ## Roadmap (from Planning.md)
 

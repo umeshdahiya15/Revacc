@@ -12,6 +12,8 @@ trap cleanup EXIT
 
 echo "==> Starting backend on :$BACKEND_PORT …"
 cd "$(dirname "$0")/backend"
+# Development-only wildcard CORS for the temporary ngrok/local frontend.
+# Production deployments must set MEV_CORS_ORIGINS to explicit origins.
 MEV_CORS_ORIGINS="*" .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port "$BACKEND_PORT" &
 sleep 2
 

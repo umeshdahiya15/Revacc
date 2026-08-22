@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { DEFAULT_API_URL } from "@/lib/api";
+import { DEFAULT_API_URL, normalizeApiBaseUrl } from "@/lib/api";
 
 const STORAGE_KEY = "revacc:settings";
 
@@ -23,7 +23,7 @@ interface Settings {
 }
 
 const DEFAULTS: Settings = {
-  apiUrl: process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_API_URL,
+  apiUrl: normalizeApiBaseUrl(process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_API_URL),
   polling: true,
   autoplay: true,
   compactSteps: false,
@@ -32,14 +32,24 @@ const DEFAULTS: Settings = {
 function loadSettings(): Settings {
   if (typeof window === "undefined") return DEFAULTS;
   try {
-    return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}") };
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
+    return {
+      ...DEFAULTS,
+      ...saved,
+      apiUrl: typeof saved.apiUrl === "string"
+        ? normalizeApiBaseUrl(saved.apiUrl)
+        : DEFAULTS.apiUrl,
+    };
   } catch {
     return DEFAULTS;
   }
 }
 
 function saveSettings(settings: Settings) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({
+    ...settings,
+    apiUrl: normalizeApiBaseUrl(settings.apiUrl),
+  }));
 }
 
 function Row({
@@ -70,7 +80,9 @@ export default function SettingsPage() {
   const setToggle = (key: keyof Settings) => (v: boolean) => update({ [key]: v });
 
   const save = () => {
-    saveSettings(settings);
+    const normalized = { ...settings, apiUrl: normalizeApiBaseUrl(settings.apiUrl) };
+    saveSettings(normalized);
+    setSettings(normalized);
     showToast("Settings saved", "success", "Preferences stored locally.");
   };
 
@@ -105,7 +117,7 @@ export default function SettingsPage() {
             />
             <p className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
               <Info className="h-3 w-3" />
-              Also set via NEXT_PUBLIC_API_URL in .env.local
+              Use https:// for deployed backends; localhost may use http://. Also set via NEXT_PUBLIC_API_URL in .env.local
             </p>
           </div>
         </CardContent>

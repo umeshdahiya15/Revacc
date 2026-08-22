@@ -20,16 +20,59 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Return a safe absolute HTTP(S) API origin.
+ *
+ * A hostname entered without a scheme is common in deployment settings, but
+ * fetch treats it as a path when interpolated into a request URL. Deployed
+ * hosts default to HTTPS; explicit local hostnames retain the convenient HTTP
+ * development default.
+ */
+export function normalizeApiBaseUrl(url: string): string {
+  const value = url.trim();
+  if (!value || value.startsWith("/")) return DEFAULT_API_URL;
+
+  const hasHttpScheme = /^https?:\/\//i.test(value);
+  const hasUnsupportedScheme = /^[a-z][a-z\d+.-]*:\/\//i.test(value) && !hasHttpScheme;
+  if (hasUnsupportedScheme) return DEFAULT_API_URL;
+
+  let candidate = value;
+  if (!hasHttpScheme) {
+    try {
+      const hostname = new URL(`http://${value}`).hostname.toLowerCase();
+      const isLocalhost = hostname === "localhost"
+        || hostname === "[::1]"
+        || hostname === "0.0.0.0"
+        || /^127(?:\.\d{1,3}){3}$/.test(hostname);
+      candidate = `${isLocalhost ? "http" : "https"}://${value}`;
+    } catch {
+      return DEFAULT_API_URL;
+    }
+  }
+
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return DEFAULT_API_URL;
+    }
+    return parsed.href.replace(/\/+$/, "");
+  } catch {
+    return DEFAULT_API_URL;
+  }
+}
+
 function resolveApiBase(): string {
   // 1. Explicit env var (highest priority)
   const envUrl = process.env.NEXT_PUBLIC_API_URL;
-  if (envUrl) return envUrl;
+  if (envUrl?.trim()) return normalizeApiBaseUrl(envUrl);
 
   // 2. User-configured URL in Settings (localStorage)
   if (typeof window !== "undefined") {
     try {
       const saved = JSON.parse(localStorage.getItem("revacc:settings") ?? "{}");
-      if (saved.apiUrl) return saved.apiUrl;
+      if (typeof saved.apiUrl === "string" && saved.apiUrl.trim()) {
+        return normalizeApiBaseUrl(saved.apiUrl);
+      }
     } catch { /* ignore */ }
   }
 
@@ -39,7 +82,7 @@ function resolveApiBase(): string {
 }
 
 function normalizeBaseUrl(url: string): string {
-  return url.replace(/\/+$/, "");
+  return normalizeApiBaseUrl(url);
 }
 
 export interface RequestOptions {

@@ -6,12 +6,16 @@ from dataclasses import dataclass, field
 
 
 def _parse_cors() -> tuple[str, ...]:
-    """Parse CORS origins from MEV_CORS_ORIGINS env var (comma-separated).
+    """Parse comma-separated CORS origins from ``MEV_CORS_ORIGINS``.
 
-    In development, allow all origins so that tunneled frontends (Cloudflare,
-    ngrok, etc.) can reach the API without manual CORS configuration.
+    Local origins remain available by default. Production deployments must
+    explicitly provide the frontend origin; an explicit ``*`` is retained as
+    an opt-in development setting for the existing local start script.
     """
     extra = os.environ.get("MEV_CORS_ORIGINS", "")
+    if extra.strip() == "*":
+        return ("*",)
+
     base = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
@@ -20,12 +24,11 @@ def _parse_cors() -> tuple[str, ...]:
         "https://localhost:3000",
         "https://127.0.0.1:3000",
     ]
-    if extra:
-        base.extend(o.strip() for o in extra.split(",") if o.strip())
-    else:
-        # Allow all origins when no explicit list is provided — safe for
-        # local development and tunnelled setups (Cloudflare, ngrok).
-        base.append("*")
+    base.extend(
+        origin.strip()
+        for origin in extra.split(",")
+        if origin.strip() and origin.strip() != "*"
+    )
     return tuple(base)
 
 
