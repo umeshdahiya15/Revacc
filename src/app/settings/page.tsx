@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
+import { DEFAULT_API_URL } from "@/lib/api";
 
 const STORAGE_KEY = "revacc:settings";
 
@@ -22,7 +23,7 @@ interface Settings {
 }
 
 const DEFAULTS: Settings = {
-  apiUrl: process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000",
+  apiUrl: process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_API_URL,
   polling: true,
   autoplay: true,
   compactSteps: false,

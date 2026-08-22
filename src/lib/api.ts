@@ -2,12 +2,14 @@
  * Lightweight fetch wrapper for the Revacc FastAPI backend.
  *
  * URL resolution (in priority order):
- *   1. NEXT_PUBLIC_API_URL env var (set in Vercel dashboard when backend is deployed)
- *   2. Same origin (when frontend & backend are on the same host, e.g. localhost)
- *   3. http://localhost:8000 fallback (SSR / local dev)
+ *   1. NEXT_PUBLIC_API_URL env var (set by the frontend deployment)
+ *   2. User-configured URL in Settings (localStorage)
+ *   3. Railway backend fallback (including SSR and missing-env deployments)
  */
 
 import type { ActivityEntry, Epitope, Job } from "@/types";
+
+export const DEFAULT_API_URL = "https://revacc-production.up.railway.app";
 
 export class ApiError extends Error {
   status: number;
@@ -29,18 +31,11 @@ function resolveApiBase(): string {
       const saved = JSON.parse(localStorage.getItem("revacc:settings") ?? "{}");
       if (saved.apiUrl) return saved.apiUrl;
     } catch { /* ignore */ }
-
-    const host = window.location.hostname;
-    // Running on localhost / 127.0.0.1 → assume backend is on the same machine
-    if (host === "localhost" || host === "127.0.0.1" || host === "") {
-      return `http://${window.location.hostname}:8000`;
-    }
-    // Deployed (Vercel, etc.) → same-origin backend
-    return window.location.origin;
   }
 
-  // SSR fallback
-  return "http://localhost:8000";
+  // Keep deployed and SSR requests pointed at the configured backend even
+  // when NEXT_PUBLIC_API_URL is missing from the frontend environment.
+  return DEFAULT_API_URL;
 }
 
 function normalizeBaseUrl(url: string): string {
