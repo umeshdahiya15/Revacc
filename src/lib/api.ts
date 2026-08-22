@@ -43,7 +43,9 @@ function resolveApiBase(): string {
   return "http://localhost:8000";
 }
 
-const API_BASE_URL = resolveApiBase();
+function normalizeBaseUrl(url: string): string {
+  return url.replace(/\/+$/, "");
+}
 
 export interface RequestOptions {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -62,12 +64,13 @@ export async function apiRequest<T>(
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch(`${API_BASE_URL}${path}`, {
+    const baseUrl = normalizeBaseUrl(resolveApiBase());
+    const response = await fetch(`${baseUrl}${path}`, {
       method,
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
-        ...(API_BASE_URL.includes("ngrok") ? { "ngrok-skip-browser-warning": "true" } : {}),
+        ...(baseUrl.includes("ngrok") ? { "ngrok-skip-browser-warning": "true" } : {}),
         ...headers,
       },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -101,7 +104,7 @@ export async function apiRequest<T>(
 }
 
 export function wsUrl(jobId: string): string {
-  const base = resolveApiBase();
+  const base = normalizeBaseUrl(resolveApiBase());
   const wsBase = base.replace(/^http/, "ws");
   return `${wsBase}/ws/pipeline/${jobId}`;
 }
@@ -149,6 +152,58 @@ export async function fetchJobs(): Promise<Job[]> {
 export async function fetchEpitopes(jobId: string): Promise<Epitope[]> {
   return apiRequest<Epitope[]>(`/api/jobs/${jobId}/epitopes`, { timeoutMs: 4000 });
 }
+
+export const COMPARISON_METRICS = [
+  ["mev_length", "MEV length (aa)"],
+  ["ctl_epitopes", "CTL epitopes"],
+  ["htl_epitopes", "HTL epitopes"],
+  ["bcell_epitopes", "B-cell epitopes"],
+  ["population_coverage", "Population coverage (%)"],
+] as const;
+
+export interface ComparisonFunnelLevel {
+  key: string;
+  label: string;
+  count: number | null;
+  filterLabel?: string;
+  final?: boolean;
+}
+
+export interface ComparisonProvenance {
+  status: "real" | "cached-real" | "local-analysis" | "user-provided" | "unavailable" | "paused" | "partial" | "error" | string;
+  method?: string | null;
+  reason?: string | null;
+  [key: string]: unknown;
+}
+
+export interface ComparisonJob {
+  id: string;
+  name: string;
+  status: Job["status"];
+  funnel: ComparisonFunnelLevel[];
+  mevMetrics: Record<string, number | string | null>;
+  provenance: ComparisonProvenance;
+}
+
+export interface JobsComparison {
+  funnelStages: Array<{ key: string; label: string }>;
+  jobs: ComparisonJob[];
+}
+
+/** Align the union of real funnel stages while preserving backend order. */
+export function comparisonStages(jobs: ComparisonJob[]): Array<{ key: string; label: string }> {
+  const stages = new Map<string, { key: string; label: string }>();
+  jobs.forEach((job) => job.funnel.forEach((level) => {
+    if (!stages.has(level.key)) stages.set(level.key, { key: level.key, label: level.label });
+  }));
+  return Array.from(stages.values());
+}
+
+export function compareJobs(jobIds: string[]): Promise<JobsComparison> {
+  const ids = jobIds.map(encodeURIComponent).join(",");
+  return apiRequest<JobsComparison>(`/api/jobs/compare?ids=${ids}`);
+}
+
 
 /**
  * GET /api/activity — recent pipeline events across all jobs.

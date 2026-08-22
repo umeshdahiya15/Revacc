@@ -37,6 +37,7 @@ interface FormState {
   name: string;
   pathogen: PathogenSelection;
   fastaFile: string | null;
+  fastaText: string | null;
   adjuvant: string;
   host: string;
   vector: string;
@@ -63,6 +64,7 @@ const DEFAULT_STATE: FormState = {
   name: "",
   pathogen: { name: "Streptococcus agalactiae", strain: "GBS 2603V/R", taxonId: 208435 },
   fastaFile: null,
+  fastaText: null,
   adjuvant: "ctxb",
   host: "human",
   vector: "DNA",
@@ -100,8 +102,10 @@ export function JobForm() {
       name: form.name || `${form.pathogen.name} ${form.pathogen.strain ?? "MEV"}`.trim(),
       pathogenName: form.pathogen.name,
       strain: form.pathogen.strain ?? null,
-      taxonId: form.pathogen.taxonId ?? null,
+      taxonId: form.fastaText ? null : (form.pathogen.taxonId ?? null),
+      source: form.fastaText ? "fasta" : "pathogen",
       fastaFileName: form.fastaFile,
+      fastaText: form.fastaText,
       adjuvant: form.adjuvant,
       expressionHost: form.host,
       expressionVector: form.vector,
@@ -246,7 +250,17 @@ function StepPathogen({
             type="file"
             accept=".fasta,.faa,.fa,.txt"
             className="hidden"
-            onChange={(e) => set({ fastaFile: e.target.files?.[0]?.name ?? null })}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (!file) {
+                set({ fastaFile: null, fastaText: null });
+                return;
+              }
+              const reader = new FileReader();
+              reader.onload = () => set({ fastaFile: file.name, fastaText: String(reader.result ?? "") });
+              reader.onerror = () => set({ fastaFile: null, fastaText: null });
+              reader.readAsText(file);
+            }}
           />
           <label
             htmlFor="fasta-input"

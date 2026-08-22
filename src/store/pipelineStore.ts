@@ -89,7 +89,8 @@ export const usePipelineStore = create<PipelineStoreState>((set, get) => ({
     if (!activeJob) return;
 
     const phase = activeJob.phases.find((p) => p.number === event.phase);
-    if (!phase) return;
+    const stepEvent = ["step_started", "step_progress", "step_completed", "step_failed"].includes(event.type);
+    if (stepEvent && !phase) return;
     const stepNum = event.step ?? 1;
 
     let updated = activeJob;
@@ -142,6 +143,7 @@ export const usePipelineStore = create<PipelineStoreState>((set, get) => ({
           },
         };
       });
+      updated = { ...updated, status: "paused" };
       set({
         error: {
           phase: event.phase ?? 0,

@@ -5,6 +5,7 @@ import { ChevronDown, Copy } from "lucide-react";
 import { downloadFile } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { asRecord, isUnavailableStep, provenanceLabel, resultProvenance } from "@/lib/liveData";
 import type { Step } from "@/types";
 
 /**
@@ -70,8 +71,10 @@ export function StepResultPanel({ step }: { step: Step }) {
   const [open, setOpen] = useState(false);
   const result = step.result;
   const resultObj: Record<string, unknown> | undefined = isPlainObject(result) ? result : undefined;
-  const cards = resultObj ? pickCards(resultObj) : [];
-  const pausedBanner = resultObj && asPaused(resultObj);
+  const unavailable = isUnavailableStep(step);
+  const cards = resultObj && !unavailable ? pickCards(resultObj) : [];
+  const pausedBanner = asPaused(step);
+  const provenance = resultProvenance(result);
   const skipped = step.status === "skipped";
   const raw =
     JSON.stringify(
@@ -80,7 +83,7 @@ export function StepResultPanel({ step }: { step: Step }) {
       2,
     ) ?? "";
 
-  if (!result && !step.error && step.status !== "failed") {
+  if (!result && !step.error && step.status !== "failed" && step.status !== "paused") {
     return (
       <div className="rounded-md border border-border bg-card px-3 py-2 text-[11px] text-muted-foreground">
         {skipped ? "Skipped — no result was produced." : "No result recorded for this step."}
@@ -129,13 +132,24 @@ export function StepResultPanel({ step }: { step: Step }) {
 
       {pausedBanner && (
         <div className="rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2">
-          <p className="text-[11px] font-semibold text-amber-700">External tool unavailable</p>
+          <p className="text-[11px] font-semibold text-amber-700">
+            {step.status === "failed" ? "Step failed" : "Step unavailable or paused"}
+          </p>
           <p className="mt-0.5 text-[11px] text-amber-800">{pausedBanner.reason}</p>
           {pausedBanner.workaround && (
             <p className="mt-0.5 text-[10px] text-amber-700">Workaround: {pausedBanner.workaround}</p>
           )}
         </div>
       )}
+
+      {provenance && (
+        <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[10px] text-slate-600">
+          <span className="font-semibold text-slate-700">Provenance:</span> {provenanceLabel(provenance)}
+          {provenance.reason && <span> · {provenance.reason}</span>}
+        </div>
+      )}
+
+      {resultObj && <ResultMetadata result={resultObj} provenance={provenance} />}
 
       {cards.length > 0 && (
         <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
@@ -184,14 +198,54 @@ export function StepResultPanel({ step }: { step: Step }) {
   );
 }
 
-function asPaused(result: Record<string, unknown>) {
-  if (result._paused === true) {
-    return {
-      reason: typeof result.reason === "string" ? result.reason : String(result.tool ?? "tool unavailable"),
-      workaround: typeof result.workaround === "string" ? result.workaround : undefined,
-    };
-  }
-  return null;
+function asPaused(step: Step) {
+  const result = asRecord(step.result);
+  const provenance = resultProvenance(step.result);
+  if (!isUnavailableStep(step)) return null;
+  return {
+    reason:
+      step.error?.message ??
+      (typeof result?.reason === "string" ? result.reason : undefined) ??
+      provenance?.reason ??
+      (typeof result?.message === "string" ? result.message : undefined) ??
+      "No validated result was produced for this step.",
+    workaround: typeof result?.workaround === "string" ? result.workaround : undefined,
+  };
+}
+
+function ResultMetadata({ result, provenance }: { result: Record<string, unknown>; provenance: ReturnType<typeof resultProvenance> }) {
+  const keys: [string, string][] = [
+    ["method", "Method"],
+    ["algorithm", "Algorithm"],
+    ["source", "Source"],
+    ["sourceType", "Source type"],
+    ["database", "Database"],
+    ["reference", "Reference"],
+    ["release", "Release"],
+    ["threshold", "Threshold"],
+    ["criteria", "Thresholds / criteria"],
+    ["cacheStatus", "Cache status"],
+    ["cacheType", "Cache type"],
+    ["window_size", "Window"],
+    ["query", "Query"],
+  ] as const;
+  const rows = keys
+    .map(([key, label]) => {
+      const value = result[key] ?? provenance?.[key];
+      if (value === undefined || value === null || value === "") return null;
+      return [label, typeof value === "object" ? JSON.stringify(value) : formatValue(value)] as const;
+    })
+    .filter((row): row is readonly [string, string] => row !== null);
+  if (rows.length === 0) return null;
+  return (
+    <div className="grid gap-x-4 gap-y-1 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[10px] sm:grid-cols-2">
+      {rows.map(([label, value]) => (
+        <p key={label} className="min-w-0 truncate text-slate-600">
+          <span className="font-semibold text-slate-700">{label}:</span> {value}
+        </p>
+      ))}
+    </div>
+  );
 }
 
 function plusCount(result: Record<string, unknown>): string {

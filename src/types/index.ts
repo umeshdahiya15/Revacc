@@ -5,6 +5,29 @@ export type PhaseStatus = "pending" | "running" | "completed" | "failed" | "paus
 export type StepStatus = "pending" | "running" | "success" | "failed" | "skipped" | "paused";
 export type EpitopeType = "CTL" | "HTL" | "BCELL_LINEAR" | "BCELL_CONFORMATIONAL";
 export type ApiKind = "api" | "scrape" | "local";
+export type ProvenanceStatus =
+  | "real"
+  | "cached-real"
+  | "local-analysis"
+  | "user-provided"
+  | "unavailable"
+  | "paused"
+  | "partial"
+  | "error"
+  | "fallback"
+  | string;
+
+export interface Provenance {
+  status?: ProvenanceStatus;
+  method?: string;
+  source?: string;
+  database?: string;
+  release?: string;
+  threshold?: number | string;
+  cacheStatus?: string;
+  reason?: string;
+  [key: string]: unknown;
+}
 
 export interface StepDefinition {
   number: number;
@@ -43,12 +66,13 @@ export interface Step {
   completedAt?: string;
   error?: StepError;
   result?: Record<string, unknown>;
+  provenance?: Provenance;
 }
 
 export interface FilterFunnelLevel {
   key: string;
   label: string;
-  count: number;
+  count: number | null;
   filterLabel?: string;
   final?: boolean;
 }
@@ -72,6 +96,11 @@ export interface JobConfig {
   source: "pathogen" | "fasta";
   fastaFileName?: string;
   adjuvant: string;
+  enableMevEnhancements?: boolean;
+  adjuvantSequence?: string;
+  adjuvantSource?: string;
+  signalPeptideSequence?: string;
+  signalPeptideSource?: string;
   cdHitThreshold: number;
   vaxijenThreshold: number;
   expressionHost: string;
@@ -134,6 +163,8 @@ export interface Epitope {
   ic50?: number;
   percentileRank?: number;
   predictionMethod?: string;
+  source?: "real" | "cached-real" | "local-analysis" | "unavailable" | "user-provided" | "fallback";
+  provenance?: Provenance;
   cytokineProfile?: {
     ifnGamma?: boolean | string;
     il4?: boolean | string;

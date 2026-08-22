@@ -14,6 +14,7 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { downloadFile, toCsv, formatDuration } from "@/lib/utils";
+import { asRecord, isUnavailableStep, stepProvenance } from "@/lib/liveData";
 import type { Job, Step } from "@/types";
 
 export type ExportFormat =
@@ -38,6 +39,39 @@ const STATUS_COLORS: Record<string, [number, number, number]> = {
   pending: [203, 213, 225],
   completed: [16, 185, 129],
 };
+
+/**
+ * Paper-reference funnel values documented by the project for Barazesh et al. 2024.
+ *
+ * These are comparison metadata only: they are not substituted for authoritative
+ * run output. Stages without a documented paper value are intentionally omitted
+ * and render as an em dash in the report rather than using an operational count.
+ */
+export const PAPER_STANDARD: Readonly<Record<string, number>> = {
+  Essential: 1336,
+  "Surface-exposed": 408,
+};
+
+/**
+ * External structural-validation capabilities are intentionally explicit.
+ * These rows do not represent measurements; they document unavailable methods
+ * so an export can never imply that docking or MD succeeded when no configured
+ * tool and no real output exist.
+ */
+export const EXTERNAL_VALIDATION_STATUS = [
+  {
+    method: "PyDock",
+    requestedProtocol: "Targets 1I1Y, 2Z7X, 1KG0",
+    status: "unavailable",
+    reason: "No PyDock integration or validated docking output is configured.",
+  },
+  {
+    method: "Molecular dynamics",
+    requestedProtocol: "GROMACS 2023.2 · OPLS-AA/L · SPC · 1 nm box · 50,000 minimization steps · NVT/NPT 10 ns · production 100 ns",
+    status: "unavailable",
+    reason: "GROMACS, the requested force field/system setup, and a validated trajectory are not configured.",
+  },
+] as const;
 
 function allSteps(job: Job): Step[] {
   return job.phases.flatMap((p) => p.steps);
@@ -148,16 +182,25 @@ export function generateReportPdf(job: Job): void {
   const funnel = funnelData(job);
   if (funnel.length > 1) {
     header("Proteome Filtering Funnel");
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7);
+    doc.setTextColor(71, 85, 105);
+    doc.text("Paper standard values are comparison metadata only; run counts come from this Job record.", M, y);
+    y += 4;
     autoTable(doc, {
       startY: y,
       margin: { left: M, right: M },
       headStyles: { fillColor: [37, 99, 235], fontSize: 7.5 },
       styles: { fontSize: 7.5, cellPadding: 1.6 },
-      head: [["Filter Step", "Count", "Retention (%)"]],
+      head: [["Filter Step", "Count", "Retention (%)", "Paper standard", "Evidence"]],
       body: funnel.map((f, i) => [
         f.label,
-        f.count.toLocaleString(),
-        i === 0 ? "100" : ((f.count / funnel[0].count) * 100).toFixed(1),
+        f.count == null ? "unavailable" : f.count.toLocaleString(),
+        f.count == null || funnel[0].count == null
+          ? "—"
+          : i === 0 ? "100" : ((f.count / funnel[0].count) * 100).toFixed(1),
+        PAPER_STANDARD[f.label]?.toLocaleString() ?? "—",
+        f.evidence,
       ]),
     });
     y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
@@ -175,14 +218,18 @@ export function generateReportPdf(job: Job): void {
       margin: { left: M, right: M },
       headStyles: { fillColor: [37, 99, 235], fontSize: 7.5 },
       styles: { fontSize: 7, cellPadding: 1.5 },
-      head: [["#", "Sequence", "Type", "Source protein", "Allele", "Method", "IC50", "Rank", "Antigenicity", "Sel."]],
+      head: [["#", "Sequence", "Type", "Source protein", "Source ID", "Position", "Window", "Allele", "Method", "Provenance", "IC50", "Rank", "Antigenicity", "Sel."]],
       body: top.map((e, i) => [
         String(i + 1),
         e.sequence,
         e.type,
         e.sourceProtein.slice(0, 30),
+        e.sourceProteinId ?? "—",
+        e.startPosition != null ? String(e.startPosition) : "—",
+        e.windowLength != null ? String(e.windowLength) : "—",
         e.hlaAllele ?? "—",
-        e.predictionMethod ?? "—",
+        e.predictionMethod ?? e.provenance?.method ?? "—",
+        e.source ?? e.provenance?.status ?? "unavailable",
         e.ic50 != null ? e.ic50.toFixed(1) : "—",
         e.percentileRank != null ? e.percentileRank.toFixed(2) : "—",
         e.antigenicityScore != null ? e.antigenicityScore.toFixed(2) : "—",
@@ -302,6 +349,23 @@ export function generateReportPdf(job: Job): void {
       y += 4;
     }
   }
+
+  // ---- External validation availability ----
+  header("External Validation Availability");
+  autoTable(doc, {
+    startY: y,
+    margin: { left: M, right: M },
+    headStyles: { fillColor: [71, 85, 105], fontSize: 7.5 },
+    styles: { fontSize: 7, cellPadding: 1.6 },
+    head: [["Method", "Requested protocol", "Status", "Provenance / reason"]],
+    body: EXTERNAL_VALIDATION_STATUS.map((item) => [
+      item.method,
+      item.requestedProtocol,
+      item.status,
+      item.reason,
+    ]),
+  });
+  y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
 
   // ---- Footer ----
   const pages = doc.getNumberOfPages();
@@ -498,9 +562,12 @@ export function exportZip(job: Job): void {
           Type: e.type,
           Sequence: e.sequence,
           "Source Protein": e.sourceProteinName ?? e.sourceProtein,
-          "Position": e.startPosition ?? "",
-          "HLA Allele": e.hlaAllele ?? "",
-          "Method": e.predictionMethod ?? "",
+          "Source Protein ID": e.sourceProteinId ?? "",
+          Position: e.startPosition ?? "",
+          Window: e.windowLength ?? "",
+          "HLA Allele": e.hlaAllele ?? e.hlaAlleles?.join(", ") ?? "",
+          Method: e.predictionMethod ?? e.provenance?.method ?? "",
+          Provenance: e.source ?? e.provenance?.status ?? "",
           "IC50 (nM)": e.ic50 ?? "",
           "Percentile Rank": e.percentileRank ?? "",
           Antigenicity: e.antigenicityScore ?? "",
@@ -667,34 +734,90 @@ function num(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
-function funnelData(job: Job): { label: string; count: number }[] {
+function funnelData(job: Job): { label: string; count: number | null; evidence: string }[] {
+  const stageSteps: Record<string, string> = {
+    proteins: "1-1",
+    redundant: "1-2",
+    essential: "2-1",
+    surface_exposed: "2-2",
+    virulence_factors: "3-3",
+    targets: "3-4",
+    "mhc-i": "5-1",
+    "mhc-ii": "6-1",
+  };
   if (job.funnel && job.funnel.length > 0) {
-    return job.funnel.map((f) => ({ label: f.label, count: f.count }));
-  }
-  const out: { label: string; count: number }[] = [];
-  const r11 = stepById(job, "1-1")?.result;
-  if (isObj(r11)) {
-    out.push({ label: "Retrieved proteome", count: num(r11.proteins) ?? num(r11.total) ?? 0 });
-  }
-  const r12 = stepById(job, "1-2")?.result;
-  if (isObj(r12)) out.push({ label: "Non-redundant", count: num(r12.nonRedundant) ?? 0 });
-  const r21 = stepById(job, "2-1")?.result;
-  if (isObj(r21)) out.push({ label: "Essential", count: num(r21.essential) ?? 0 });
-  const r24 = stepById(job, "2-4")?.result;
-  if (isObj(r24)) out.push({ label: "Surface-exposed", count: num(r24.surface_exposed_count) ?? 0 });
-  const r31 = stepById(job, "3-1")?.result;
-  if (isObj(r31)) {
-    out.push({
-      label: "Non-allergenic",
-      count: num(r31.non_allergen_count) ?? num(r31.total_analyzed) ?? 0,
+    return job.funnel.map((f) => {
+      const step = stepById(job, stageSteps[f.key]);
+      const provenance = stepProvenance(step);
+      const unavailable = isUnavailableStep(step);
+      const evidence = unavailable
+        ? "unavailable"
+        : [f.filterLabel, provenance?.status, provenance?.method].filter(Boolean).join(" · ") || "authoritative run output";
+      return { label: f.label, count: unavailable ? null : f.count, evidence };
     });
   }
+  const out: { label: string; count: number | null; evidence: string }[] = [];
+  const add = (label: string, count: number | null, stepId: string) => {
+    const step = stepById(job, stepId);
+    const result = step?.result;
+    const provenance = asRecord(result?.provenance);
+    const unavailable = isUnavailableStep(step);
+    const evidence = unavailable
+      ? "unavailable"
+      : [typeof result?.source === "string" ? result.source : undefined, provenance?.status, provenance?.method]
+          .filter(Boolean)
+          .join(" · ") || "authoritative run output";
+    if (count != null || unavailable) out.push({ label, count: unavailable ? null : count, evidence });
+  };
+  const r11 = stepById(job, "1-1")?.result;
+  if (isObj(r11)) add("Retrieved proteome", num(r11.proteins) ?? num(r11.total), "1-1");
+  const r12 = stepById(job, "1-2")?.result;
+  if (isObj(r12)) add("Non-redundant", num(r12.nonRedundant), "1-2");
+  const r21 = stepById(job, "2-1")?.result;
+  if (isObj(r21)) add("Essential", num(r21.essential) ?? num(r21.count), "2-1");
+  const r22 = stepById(job, "2-2")?.result;
+  if (isObj(r22)) add("Surface-exposed", num(r22.surface_exposed_count) ?? num(r22.count), "2-2");
+  const r31 = stepById(job, "3-1")?.result;
+  if (isObj(r31)) add("Non-allergenic", num(r31.non_allergen_count) ?? num(r31.total_analyzed), "3-1");
   const r32 = stepById(job, "3-2")?.result;
-  if (isObj(r32)) out.push({ label: "Antigenic", count: num(r32.antigenic_count) ?? 0 });
+  if (isObj(r32)) add("Antigenic", num(r32.antigenic_count), "3-2");
+  const r33 = stepById(job, "3-3")?.result;
+  if (isObj(r33)) add("Virulence factors", num(r33.virulence_count) ?? num(r33.count), "3-3");
   const r34 = stepById(job, "3-4")?.result;
-  if (isObj(r34)) out.push({ label: "Non-human homolog", count: num(r34.non_homologous_count) ?? 0 });
-  return out.filter((f) => f.count > 0);
+  if (isObj(r34)) add("Non-human homolog", num(r34.non_homologous_count) ?? num(r34.count), "3-4");
+  return out.filter((f) => f.count != null || f.evidence === "unavailable");
 }
+
+export interface RunComparison {
+  id: string;
+  name: string;
+  status: Job["status"];
+  funnel: { label: string; count: number | null; evidence: string }[];
+  mevMetrics: Record<string, number | string | null>;
+}
+
+/** Build a comparison from real job records; unavailable metrics remain null. */
+export function buildRunComparison(jobs: Job[]): RunComparison[] {
+  return jobs.map((job) => {
+    const result = stepById(job, "9-2")?.result;
+    const mevMetrics: Record<string, number | string | null> = {};
+    if (isObj(result)) {
+      ["mev_length", "length", "ctl_epitopes", "htl_epitopes", "bcell_epitopes"].forEach((key) => {
+        const value = result[key];
+        if (typeof value === "number" || typeof value === "string") mevMetrics[key] = value;
+      });
+      if (isUnavailableStep(stepById(job, "9-2")) || (isObj(result.provenance) && result.provenance.status === "unavailable")) {
+        mevMetrics.status = "unavailable";
+      }
+    }
+    const coverage = stepById(job, "8-1")?.result;
+    if (isObj(coverage) && typeof coverage.coverage === "number" && !isUnavailableStep(stepById(job, "8-1"))) {
+      mevMetrics.population_coverage = coverage.coverage;
+    }
+    return { id: job.id, name: job.name, status: job.status, funnel: funnelData(job), mevMetrics };
+  });
+}
+
 
 function coverageRows(job: Job): { name: string; coverage: string; hits: string; count: string }[] {
   const r = stepById(job, "8-1")?.result;
@@ -710,8 +833,19 @@ function coverageRows(job: Job): { name: string; coverage: string; hits: string;
       });
     });
   }
+  if (rows.length === 0 && typeof r.coverage === "number") {
+    rows.push({ name: "Global (all populations)", coverage: r.coverage.toFixed(2), hits: "—", count: "—" });
+  }
   if (rows.length === 0 && typeof r.global === "number") {
     rows.push({ name: "Global (all populations)", coverage: r.global.toFixed(2), hits: "—", count: "—" });
+  }
+  const byArea = asRecord(r.by_area);
+  if (byArea) {
+    Object.entries(byArea).forEach(([pop, cv]) => {
+      if (typeof cv === "number") {
+        rows.push({ name: titleize(pop), coverage: cv.toFixed(2), hits: "—", count: "—" });
+      }
+    });
   }
   Object.entries(r).forEach(([k, v]) => {
     if (/coverage/i.test(k) && isObj(v)) {
@@ -735,8 +869,10 @@ function constructInfo(job: Job): {
 } | null {
   const r92 = stepById(job, "9-2")?.result ?? stepById(job, "9-1")?.result;
   if (!isObj(r92)) return null;
+  const r92Step = stepById(job, "9-2") ?? stepById(job, "9-1");
+  if (isUnavailableStep(r92Step)) return null;
   const seq = typeof r92.sequence === "string" ? r92.sequence : undefined;
-  const length = num(r92.length) ?? seq?.length ?? 0;
+  const length = num(r92.mev_length) ?? num(r92.length) ?? seq?.length ?? 0;
   if (length === 0 && !seq) return null;
   const props: string[][] = [];
   const push = (k: string, v: unknown) => {
@@ -764,7 +900,7 @@ function constructInfo(job: Job): {
 }
 
 function keySummary(step: Step): string {
-  if (step.status === "failed") return step.error?.message?.slice(0, 60) ?? "failed";
+  if (step.status === "failed" || step.status === "paused") return step.error?.message?.slice(0, 60) ?? step.status;
   if (step.status === "skipped") return "skipped";
   const r = step.result;
   if (!isObj(r)) return "—";
@@ -779,8 +915,12 @@ function keySummary(step: Step): string {
     "antigenic_count",
     "virulence_count",
     "non_homologous_count",
+    "virulence_count",
     "epitopes",
     "selected",
+    "ctl_epitopes",
+    "htl_epitopes",
+    "bcell_epitopes",
     "count",
     "global",
     "length",

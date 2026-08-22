@@ -10,6 +10,7 @@ import { usePipelineStore } from "@/store/pipelineStore";
 import { useToast } from "@/hooks/useToast";
 import { pipelineControl, retryStep, skipStep, deleteJob, type PipelineAction } from "@/lib/api";
 import { cn, timeAgo } from "@/lib/utils";
+import { liveMetrics, type LiveMetric } from "@/lib/liveData";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -18,7 +19,7 @@ import { FilterFunnel } from "@/components/pipeline/FilterFunnel";
 import { PipelineControls, type ExportFormat } from "@/components/pipeline/PipelineControls";
 import { ErrorBanner } from "@/components/pipeline/ErrorBanner";
 import { useExport } from "@/hooks/useExport";
-import type { Job, Step } from "@/types";
+import type { Job, PipelineError, Step } from "@/types";
 
 export default function JobDetailPage() {
   const params = useParams<{ id: string }>();
@@ -49,6 +50,25 @@ export default function JobDetailPage() {
   }, [jobId, job, setActiveJob, setJobs]);
 
   const funnel = useMemo(() => job?.funnel ?? [], [job]);
+  const persistedError = useMemo<PipelineError | null>(() => {
+    if (!job) return null;
+    for (const phase of job.phases) {
+      const step = phase.steps.find((candidate) => candidate.status === "failed" || candidate.status === "paused");
+      if (step) {
+        return {
+          phase: phase.number,
+          step: step.number,
+          stepId: step.id,
+          message: step.error?.message ?? "This step is paused or unavailable and needs review.",
+          retries: step.error?.retries,
+          tool: step.error?.tool ?? step.tool,
+          severity: step.error?.severity ?? "pause",
+        };
+      }
+    }
+    return null;
+  }, [job]);
+  const displayError = error ?? persistedError;
 
   const onRetry = async (step: Step) => {
     if (!jobId) return;
@@ -92,6 +112,10 @@ export default function JobDetailPage() {
     try {
       const updated = await pipelineControl(jobId, action);
       setActiveJob(updated);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["job", jobId] }),
+        queryClient.invalidateQueries({ queryKey: ["jobs"] }),
+      ]);
     } catch (e) {
       showToast("Action failed", "error", e instanceof Error ? e.message : "Request failed");
     }
@@ -192,16 +216,16 @@ export default function JobDetailPage() {
       )}
 
       {/* Error banner */}
-      {error && (
+      {displayError && (
         <ErrorBanner
-          error={{ message: error.message, retries: error.retries ?? 0, tool: error.tool, severity: error.severity }}
-          stepLabel={`Phase ${error.phase} · Step ${error.step}`}
+          error={{ message: displayError.message, retries: displayError.retries ?? 0, tool: displayError.tool, severity: displayError.severity }}
+          stepLabel={`Phase ${displayError.phase} · Step ${displayError.step}`}
           onRetry={() => {
-            const step = findStep(job, error.phase, error.step);
+            const step = findStep(job, displayError.phase, displayError.step);
             if (step) onRetry(step);
           }}
           onSkip={() => {
-            const step = findStep(job, error.phase, error.step);
+            const step = findStep(job, displayError.phase, displayError.step);
             if (step) onSkip(step);
           }}
           onStop={onStop}
@@ -209,6 +233,8 @@ export default function JobDetailPage() {
       )}
 
       <PipelineProgress job={job} onRetry={onRetry} onSkip={onSkip} />
+
+      <LiveMeasuredSummary job={job} />
 
       {funnel.length > 0 && <FilterFunnel levels={funnel} />}
 
@@ -260,6 +286,55 @@ function CompletedSummary({ job, onExport }: { job: Job; onExport: (f: ExportFor
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function LiveMeasuredSummary({ job }: { job: Job }) {
+  const metrics = liveMetrics(job);
+  if (metrics.length === 0) return null;
+  return (
+    <section className="rounded-xl border border-border bg-card p-4" aria-label="Live measured pipeline values">
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+        <div>
+          <h2 className="text-sm font-semibold text-foreground">Live measured results</h2>
+          <p className="text-[11px] text-muted-foreground">
+            Values are read from this Job&apos;s step results and epitope records. Missing or unavailable outputs are not shown as zero.
+          </p>
+        </div>
+        <Badge variant="outline" className="text-[10px]">backend data</Badge>
+      </div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+        {metrics.map((metric) => <MeasuredMetric key={metric.key} metric={metric} />)}
+      </div>
+    </section>
+  );
+}
+
+function MeasuredMetric({ metric }: { metric: LiveMetric }) {
+  const unavailable = metric.value == null || metric.status === "unavailable";
+  const formatted = unavailable
+    ? "Unavailable"
+    : typeof metric.value === "number"
+      ? metric.key === "population-coverage"
+        ? `${metric.value.toFixed(2)}%`
+        : metric.key === "mev-length"
+          ? `${metric.value.toLocaleString()} aa`
+          : metric.value.toLocaleString()
+      : metric.value;
+  return (
+    <div className={cn(
+      "rounded-md border p-2",
+      unavailable ? "border-amber-200 bg-amber-50/50" : "border-border bg-background",
+    )}>
+      <p className="truncate text-[11px] font-medium text-muted-foreground">{metric.label}</p>
+      <p className={cn("mt-0.5 text-lg font-bold tabular-nums", unavailable ? "text-amber-700" : "text-foreground")}>
+        {formatted}
+      </p>
+      <p className="truncate text-[10px] text-muted-foreground">
+        {metric.status}{metric.method ? ` · ${metric.method}` : ""}
+      </p>
+      {unavailable && metric.reason && <p className="mt-0.5 line-clamp-2 text-[10px] text-amber-700">{metric.reason}</p>}
     </div>
   );
 }

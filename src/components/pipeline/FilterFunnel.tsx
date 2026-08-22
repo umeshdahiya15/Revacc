@@ -40,8 +40,10 @@ function FunnelLevel({
   levelsLength: number;
   index: number;
 }) {
-  const count = useCountUp(level.count);
-  const widthPct = Math.max(8, (level.count / max) * 100);
+  const unavailable = level.count == null;
+  const numericCount = level.count ?? 0;
+  const count = useCountUp(numericCount);
+  const widthPct = unavailable ? 0 : Math.max(8, (numericCount / max) * 100);
 
   return (
     <div className="space-y-1">
@@ -65,14 +67,14 @@ function FunnelLevel({
               {level.label}
             </p>
             <p className="shrink-0 text-sm font-bold tabular-nums text-foreground">
-              {Math.round(count).toLocaleString()}
+              {unavailable ? "unavailable" : Math.round(count).toLocaleString()}
             </p>
           </div>
           <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
             <motion.div
               className={cn(
                 "h-full rounded-full",
-                level.final ? "bg-emerald-500" : "bg-blue-500",
+                unavailable ? "bg-amber-400" : level.final ? "bg-emerald-500" : "bg-blue-500",
               )}
               initial={false}
               animate={{ width: `${widthPct}%` }}
@@ -81,7 +83,7 @@ function FunnelLevel({
           </div>
           <div className="mt-0.5 flex items-center justify-between">
             <p className="text-[10px] text-muted-foreground">
-              {level.filterLabel ?? "retrieved"}
+              {unavailable ? "not available from this run" : level.filterLabel ?? "retrieved"}
             </p>
             {!level.final && (
               <p className="text-[10px] text-slate-400">↓ filtered</p>
@@ -105,7 +107,7 @@ export function FilterFunnel({
   levels: FilterFunnelLevel[];
   title?: string;
 }) {
-  const max = Math.max(...levels.map((l) => l.count), 1);
+  const max = Math.max(...levels.map((l) => l.count ?? 0), 1);
 
   return (
     <div className="rounded-xl border border-border bg-card p-4">

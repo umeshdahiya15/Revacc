@@ -5,6 +5,7 @@ import { DataTable, type RowData } from "@/components/results/DataTable";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import { provenanceLabel } from "@/lib/liveData";
 import type { Epitope } from "@/types";
 
 const TYPE_BADGE: Record<Epitope["type"], { label: string; className: string }> = {
@@ -34,11 +35,15 @@ export function EpitopeTable({
 
   const rows: RowData[] = filtered.map((e, i) => ({
     "#": i + 1,
+    Type: TYPE_BADGE[e.type]?.label ?? e.type,
     "Epitope Sequence": e.sequence,
     "Source Protein": e.sourceProteinName ?? e.sourceProtein,
+    "Source Protein ID": e.sourceProteinId ?? "—",
     "Position": e.startPosition ?? "—",
+    "Window": e.windowLength ?? "—",
     "HLA Allele": e.hlaAllele ?? e.hlaAlleles?.join(", ") ?? "—",
-    "Method": e.predictionMethod ?? "—",
+    "Method": e.predictionMethod ?? e.provenance?.method ?? "—",
+    "Source / Provenance": e.source ?? provenanceLabel(e.provenance ?? null),
     "IC50 (nM)": e.ic50?.toFixed(1) ?? "—",
     "Percentile Rank": e.percentileRank?.toFixed(2) ?? "—",
     "Antigenicity": e.antigenicityScore?.toFixed(2) ?? "—",
@@ -82,11 +87,15 @@ export function EpitopeTable({
       <DataTable
         columns={[
           "#",
+          "Type",
           "Epitope Sequence",
           "Source Protein",
+          "Source Protein ID",
           "Position",
+          "Window",
           "HLA Allele",
           "Method",
+          "Source / Provenance",
           "IC50 (nM)",
           "Percentile Rank",
           "Antigenicity",

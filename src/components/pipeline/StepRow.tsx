@@ -101,7 +101,7 @@ export function StepRow({
         )}
       </div>
 
-      {failed && showError && step.error && (
+      {((failed || paused) && showError) && step.error && (
         <ErrorBanner
           error={step.error}
           stepLabel={`Step ${step.phase}.${step.number} · ${step.name}`}

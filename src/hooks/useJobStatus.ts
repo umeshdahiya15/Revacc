@@ -32,7 +32,11 @@ export function useJobStatus(jobId: string | undefined) {
     },
   });
 
-  const job = activeJob?.id === jobId ? activeJob : query.data;
+  const job = query.data && (!activeJob || query.data.updatedAt >= activeJob.updatedAt)
+    ? query.data
+    : activeJob?.id === jobId
+      ? activeJob
+      : query.data;
 
   return { job, isLoading: query.isLoading, isError: query.isError };
 }
