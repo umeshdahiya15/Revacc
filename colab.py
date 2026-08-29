@@ -107,7 +107,9 @@ header("STEP 2/7: Clone Repository + PSORTb")
 
 if os.path.exists(f"{WORKDIR}/.git"):
     p("  Repository exists, pulling latest...")
-    run(["git", "pull", "origin", "main"], cwd=WORKDIR)
+    run(["git", "fetch", "origin"], cwd=WORKDIR)
+    run(["git", "reset", "--hard", "origin/main"], cwd=WORKDIR)
+    run(["git", "clean", "-fd"], cwd=WORKDIR)
     p("  [OK] Updated")
 else:
     p("  Cloning repository...")
