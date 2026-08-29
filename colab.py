@@ -31,6 +31,7 @@ import time
 import json
 import urllib.request
 import signal
+import glob
 
 # ============================================================================
 # HELPERS
@@ -45,9 +46,9 @@ def header(title):
     p(title)
     p("=" * 60)
 
-def run(cmd, check=False, cwd=None):
+def run(cmd, check=False, cwd=None, capture_output=True):
     """Run a command and return result."""
-    return subprocess.run(cmd, capture_output=True, text=True, check=check, cwd=cwd)
+    return subprocess.run(cmd, capture_output=capture_output, text=True, check=check, cwd=cwd)
 
 PYTHON = sys.executable
 
@@ -88,6 +89,11 @@ for pkg in ["ncbi-blast+", "blast+", "git", "wget"]:
     if r.returncode == 0:
         p(f"  [OK] {pkg}")
 
+# Install cloudflared
+r = run(["wget", "-q", "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64", "-O", "/usr/local/bin/cloudflared"])
+run(["chmod", "+x", "/usr/local/bin/cloudflared"])
+p(f"  [OK] cloudflared")
+
 blastp = run(["which", "blastp"])
 if blastp.stdout.strip():
     p(f"  [OK] blastp: {blastp.stdout.strip()}")
@@ -95,9 +101,9 @@ else:
     p("  [WARN] blastp not found - will use fallback")
 
 # ============================================================================
-# STEP 2: Clone Repository
+# STEP 2: Clone Repository + Install PSORTb
 # ============================================================================
-header("STEP 2/7: Clone Repository")
+header("STEP 2/7: Clone Repository + PSORTb")
 
 if os.path.exists(f"{WORKDIR}/.git"):
     p("  Repository exists, pulling latest...")
@@ -107,6 +113,15 @@ else:
     p("  Cloning repository...")
     run(["git", "clone", REPO_URL, WORKDIR], check=True)
     p("  [OK] Cloned")
+
+# Install PSORTb for subcellular localization
+p("  Installing PSORTb from source...")
+r = run(["bash", os.path.join(WORKDIR, "install_psortb.sh")], capture_output=True)
+if r.returncode == 0:
+    p("  [OK] PSORTb installed")
+else:
+    p(f"  [WARN] PSORTb install issue: {r.stderr[:200] if r.stderr else 'unknown'}")
+    p("  Pipeline will use Phobius fallback for localization")
 
 # ============================================================================
 # STEP 3: Python Dependencies
@@ -251,6 +266,7 @@ ENV_VARS = {
     "MEV_STEP_TICK_MS": "300",
     "MEV_BLAST_DB_CACHE": "/content/blast_dbs",
     "MEV_VFDB_CACHE": "/content/blast_dbs/vfdb",
+    "PSORTB_BIN": "/usr/local/miniconda/bin/psortb",
 }
 
 for key, value in ENV_VARS.items():
@@ -262,11 +278,14 @@ p(f"  [OK] Set {len(ENV_VARS)} environment variables")
 # ============================================================================
 # STEP 6: Start Backend + Ngrok
 # ============================================================================
-header("STEP 6/7: Start Backend + Ngrok")
+header("STEP 6/7: Start Backend + Tunnel")
 
-# Kill any existing backend
+# Kill any existing backend aggressively
 p("  Stopping any existing backend...")
-subprocess.run(["pkill", "-9", "-f", f"uvicorn.*{BACKEND_PORT}"], capture_output=True)
+subprocess.run(["pkill", "-9", "-f", "uvicorn"], capture_output=True)
+subprocess.run(["pkill", "-9", "-f", "cloudflared"], capture_output=True)
+time.sleep(1)
+# Also kill by port
 subprocess.run(["fuser", "-k", f"{BACKEND_PORT}/tcp"], capture_output=True)
 time.sleep(2)
 
@@ -278,12 +297,19 @@ try:
     port_check.close()
     p(f"  [OK] Port {BACKEND_PORT} is free")
 except OSError:
-    p(f"  [WARN] Port {BACKEND_PORT} still in use, waiting...")
-    time.sleep(3)
+    p(f"  [WARN] Port {BACKEND_PORT} still in use, killing harder...")
+    subprocess.run(["lsof", "-ti", f":{BACKEND_PORT}"], capture_output=True)
+    # Force kill anything on that port
+    result = subprocess.run(["lsof", "-ti", f":{BACKEND_PORT}"], capture_output=True, text=True)
+    if result.stdout.strip():
+        for pid in result.stdout.strip().split("\n"):
+            subprocess.run(["kill", "-9", pid], capture_output=True)
+    time.sleep(2)
 
 # Prepare environment
 env = os.environ.copy()
 env["PYTHONPATH"] = WORKDIR
+env["PATH"] = "/usr/local/miniconda/bin:" + env.get("PATH", "")
 backend_dir = os.path.join(WORKDIR, "backend")
 
 # Start backend
@@ -321,28 +347,40 @@ if not backend_ready:
     p("  [ERROR] Backend did not start within 45 seconds")
     sys.exit(1)
 
-# Start ngrok tunnel
+# Start tunnel (using cloudflared - no browser warning, pre-installed)
 public_url = None
-if NGROK_AUTHTOKEN:
-    p("  Starting ngrok tunnel...")
-    try:
-        from pyngrok import ngrok
 
-        ngrok.set_auth_token(NGROK_AUTHTOKEN)
+# Kill any existing cloudflared
+subprocess.run(["pkill", "-f", "cloudflared"], capture_output=True)
+time.sleep(1)
 
-        # Kill existing tunnels
-        for tunnel in ngrok.get_tunnels():
-            ngrok.disconnect(tunnel.public_url)
+try:
+    p("  Starting cloudflared tunnel (no browser warning)...")
+    
+    # Start cloudflared in background
+    cloudflared_proc = subprocess.Popen(
+        ["cloudflared", "tunnel", "--url", f"http://localhost:{BACKEND_PORT}", "--no-autoupdate"],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+    )
+    
+    # Wait for tunnel URL
+    import re
+    for i in range(30):
+        time.sleep(1)
+        line = cloudflared_proc.stdout.readline()
+        # Extract URL using regex
+        match = re.search(r'https://[a-zA-Z0-9-]+\.trycloudflare\.com', line)
+        if match:
+            public_url = match.group(0)
+            p(f"  [OK] Tunnel: {public_url}")
+            break
+        if i == 29:
+            p("  [WARN] Could not get tunnel URL")
+except Exception as e:
+    p(f"  [WARN] cloudflared failed: {e}")
 
-        # Create new tunnel
-        tunnel = ngrok.connect(BACKEND_PORT, "http")
-        public_url = tunnel.public_url
-        p(f"  [OK] Tunnel: {public_url}")
-    except Exception as e:
-        p(f"  [WARN] ngrok failed: {e}")
-        p("         Backend accessible at http://localhost:8000")
-else:
-    p("  [SKIP] No ngrok token - backend at http://localhost:8000")
+if not public_url:
+    p("  Backend accessible at http://localhost:8000")
 
 # ============================================================================
 # STEP 7: Health Monitor + Instructions
@@ -368,7 +406,7 @@ if health:
 header("SETUP COMPLETE!")
 p("")
 if public_url:
-    p("NGROK TUNNEL ACTIVE")
+    p("TUNNEL ACTIVE")
     p(f"  URL: {public_url}")
     p("")
     p("TO CONNECT VERCEL FRONTEND:")
