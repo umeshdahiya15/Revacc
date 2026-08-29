@@ -92,7 +92,15 @@ if [ ! -f "$PSORTB_ROOT/lib/libpsortb.so" ] && [ ! -f "/usr/local/lib/libpsortb.
     cd libpsortb-1.0
     ./configure --prefix=$PSORTB_ROOT 2>/dev/null
     make 2>/dev/null
-    make install 2>/dev/null || sudo make install
+    if grep -q "^install:" Makefile 2>/dev/null; then
+        make install 2>/dev/null || sudo make install 2>/dev/null
+    else
+        # Manual copy fallback
+        mkdir -p $PSORTB_ROOT/lib $PSORTB_ROOT/include
+        cp -f .libs/libpsortb.so* $PSORTB_ROOT/lib/ 2>/dev/null || cp -f libpsortb.so* $PSORTB_ROOT/lib/ 2>/dev/null || true
+        cp -f include/*.h $PSORTB_ROOT/include/ 2>/dev/null || true
+        ldconfig 2>/dev/null || sudo ldconfig 2>/dev/null
+    fi
     cd /tmp
     echo "  [OK] libpsortb installed"
 else
@@ -117,7 +125,13 @@ if [ ! -d "$PSORTB_ROOT/lib/perl5/Bio/Tools/PSort" ]; then
     # Install
     perl Makefile.PL INSTALL_BASE=$PSORTB_ROOT 2>/dev/null
     make 2>/dev/null
-    make install 2>/dev/null || sudo make install
+    if grep -q "^install:" Makefile 2>/dev/null; then
+        make install 2>/dev/null || sudo make install 2>/dev/null
+    else
+        # Manual copy fallback
+        mkdir -p $PSORTB_ROOT/lib/perl5
+        cp -r lib/* $PSORTB_ROOT/lib/perl5/ 2>/dev/null || cp -r Bio $PSORTB_ROOT/lib/perl5/ 2>/dev/null || true
+    fi
     cd /tmp
     echo "  [OK] PSORTb Perl module installed"
 else
