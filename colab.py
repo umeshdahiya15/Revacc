@@ -115,10 +115,10 @@ else:
     p("  [OK] Cloned")
 
 # Install PSORTb for subcellular localization
-p("  Installing PSORTb from source...")
-r = run(["bash", os.path.join(WORKDIR, "install_psortb.sh")], capture_output=True)
+p("  Checking PSORTb...")
+r = run(["bash", os.path.join(WORKDIR, "check_psortb.sh")], capture_output=True)
 if r.returncode == 0:
-    p("  [OK] PSORTb installed")
+    p("  [OK] PSORTb ready")
 else:
     p(f"  [WARN] PSORTb install issue: {r.stderr[:200] if r.stderr else 'unknown'}")
     p("  Pipeline will use Phobius fallback for localization")
