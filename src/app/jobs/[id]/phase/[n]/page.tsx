@@ -13,7 +13,7 @@ import { StepProgressIndicator } from "@/components/pipeline/StepProgressIndicat
 import { StepResultPanel } from "@/components/pipeline/StepResultPanel";
 import { EpitopeTable } from "@/components/results/EpitopeTable";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { Job, Phase, Step } from "@/types";
+import type { Phase, Step } from "@/types";
 
 const STEP_ICON_STYLE: Record<Step["status"], string> = {
   pending: "bg-muted text-slate-400",
