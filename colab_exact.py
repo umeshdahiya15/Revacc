@@ -247,6 +247,13 @@ print("="*70)
 
 BASE = f"http://localhost:{BACKEND_PORT}"
 
+# Quick health check
+try:
+    with urllib.request.urlopen(f"{BASE}/api/health", timeout=5) as resp:
+        print(f"Health check: {resp.read().decode()}")
+except Exception as e:
+    print(f"WARNING: health check failed: {e}")
+
 # Create job
 job_data = json.dumps({
     "taxonId": TAXON_ID,
@@ -267,23 +274,28 @@ req = urllib.request.Request(f"{BASE}/api/jobs/{job_id}/start", method="POST")
 with urllib.request.urlopen(req) as resp:
     print(f"Pipeline started (HTTP {resp.status})")
 
-# Poll
-print("Running...")
+# Poll — show progress every iteration
+import sys
+print("Polling pipeline status...")
+poll_count = 0
 while True:
+    poll_count += 1
     try:
         req = urllib.request.Request(f"{BASE}/api/jobs/{job_id}")
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, timeout=10) as resp:
             status = json.loads(resp.read())
         ps = status.get("status", "unknown")
         step = status.get("currentStep", "")
         phase = status.get("currentPhase", 0)
+        running = status.get("running", False)
+        print(f"  [{poll_count}] Phase {phase} | Step {step} | status={ps} | running={running}", flush=True)
         if ps in ("completed", "failed", "error"):
             print(f"\nPipeline finished: {ps}")
             break
-        print(f"  Phase {phase} | Step {step} | {ps}    ", end="\r")
-        time.sleep(15)
-    except Exception:
-        time.sleep(5)
+        time.sleep(30)
+    except Exception as e:
+        print(f"  [{poll_count}] Poll error: {e}", flush=True)
+        time.sleep(10)
 
 # ─── RESULTS ──────────────────────────────────────────────────────────────────
 print(f"\n\n{'='*70}")
