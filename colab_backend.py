@@ -104,8 +104,9 @@ print("\n" + "="*70)
 print("STEP 5/5 — Starting backend + ngrok")
 print("="*70)
 
-sh(f"pkill -f 'uvicorn.*{BACKEND_PORT}' 2>/dev/null; true")
-time.sleep(1)
+sh(f"pkill -9 -f 'uvicorn.*{BACKEND_PORT}' 2>/dev/null; true")
+sh(f"fuser -k {BACKEND_PORT}/tcp 2>/dev/null; true")
+time.sleep(2)
 
 env = os.environ.copy()
 env.update({
