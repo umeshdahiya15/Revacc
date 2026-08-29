@@ -66,6 +66,14 @@ async def test_current_step_11_2_pauses_without_manual_model_or_official_transpo
     mev = completed_step_9_2_mev()
     job = _completed_mev_job(mev, "official pause-only baseline")
 
+    # Disable local ESMFold (no CUDA in test env) and API fallback
+    async def _fail_esmfold(_seq: str) -> str:
+        from app.tools.esmfold import ESMFoldError
+        raise ESMFoldError("ESMFold unavailable in test")
+
+    monkeypatch.setattr(runner_additions.esmfold, "predict_pdb", _fail_esmfold)
+    monkeypatch.setattr(runner_additions.esmfold, "_local_esmfold_available", lambda: False)
+
     try:
         await engine._run_tool(job, 11, _step(job, "11-2"))
 
@@ -74,8 +82,8 @@ async def test_current_step_11_2_pauses_without_manual_model_or_official_transpo
         structure_step = _step(persisted, "11-2")
         assert structure_step.status == "paused"
         assert structure_step.result["_paused"] is True
-        assert structure_step.result["tool"] == "AlphaFold/SwissModel"
-        assert "No validated external structure" in structure_step.result["reason"]
+        assert structure_step.result["tool"] == "ESMFold"
+        assert "ESMFold" in structure_step.result["reason"]
         assert "structures" not in get_session(job.id)
         assert "validated_coordinate_data" not in get_session(job.id)
 

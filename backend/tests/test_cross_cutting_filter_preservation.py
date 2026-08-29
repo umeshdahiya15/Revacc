@@ -175,9 +175,9 @@ def test_property9_cross_cutting_filter_preservation(
     monkeypatch.setattr(vfdb, "_build_db", lambda _path, _cache: "fixture://vfdb")
     monkeypatch.setattr(vfdb, "_run_blastp", run_vfdb)
 
-    async def run_human_homology(
+    async def run_human_blastp(
         queries: list[tuple[str, str]], **_kwargs: Any
-    ) -> tuple[list[ncbiblast.BlastResult], str]:
+    ) -> list[ncbiblast.BlastResult]:
         by_id = {candidate["uniprotId"]: candidate for candidate in candidates}
         return [
             ncbiblast.BlastResult(
@@ -197,12 +197,20 @@ def test_property9_cross_cutting_filter_preservation(
                 ],
             )
             for query_id, _sequence in queries
-        ], "fixture-human"
+        ]
+
+    async def no_op_ensure_human_db() -> None:
+        pass
 
     monkeypatch.setattr(
         runner_additions.blastdb_local,
-        "blastp_with_remote_fallback",
-        run_human_homology,
+        "blastp",
+        run_human_blastp,
+    )
+    monkeypatch.setattr(
+        runner_additions.blastdb_local,
+        "ensure_human_db",
+        no_op_ensure_human_db,
     )
 
     alg_session: dict[str, Any] = {

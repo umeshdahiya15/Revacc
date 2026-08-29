@@ -156,7 +156,7 @@ async def test_human_homology_preserves_thirty_percent_exclusion_gate(
 
     async def mocked_blast(
         queries: list[tuple[str, str]], **_kwargs: Any
-    ) -> tuple[list[ncbiblast.BlastResult], str]:
+    ) -> list[ncbiblast.BlastResult]:
         identities = {"FIX-HUMAN-LOW": 29, "FIX-HUMAN-BOUNDARY": 30, "FIX-HUMAN-HIGH": 31}
         return [
             ncbiblast.BlastResult(
@@ -174,9 +174,13 @@ async def test_human_homology_preserves_thirty_percent_exclusion_gate(
                 )],
             )
             for query_id, _sequence in queries
-        ], "fixture-human"
+        ]
 
-    monkeypatch.setattr(blastdb_local, "blastp_with_remote_fallback", mocked_blast)
+    async def no_op_ensure_human_db() -> None:
+        pass
+
+    monkeypatch.setattr(blastdb_local, "blastp", mocked_blast)
+    monkeypatch.setattr(blastdb_local, "ensure_human_db", no_op_ensure_human_db)
 
     result = await runner_additions.run_3_4(runner_mod.get_session(job.id), job, step)
 

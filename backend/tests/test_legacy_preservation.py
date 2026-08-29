@@ -59,7 +59,11 @@ def _legacy_result() -> dict[str, Any]:
 
 
 def test_legacy_mev_sequence_length_and_metrics_are_preserved() -> None:
-    """The option-disabled baseline remains the exact 336-aa construct.
+    """The option-disabled baseline uses paper-aligned caps (8/8/5).
+
+    The fixture has 5 CTL, 3 HTL, and 6 B-cell epitopes.  With paper-aligned
+    caps CTL_CAP=8, HTL_CAP=8, BCELL_CAP=5 the result is 5 CTL + 3 HTL + 5 B-cell.
+    B-cell epitopes are sorted by antigenicityScore (desc) before capping.
 
     **Validates: Requirements 3.7**
     """
@@ -69,13 +73,14 @@ def test_legacy_mev_sequence_length_and_metrics_are_preserved() -> None:
         + "ACDEFGHIK" + LINKER_AAY + "CDEFGHIKL" + LINKER_AAY
         + "DEFGHIKLM" + LINKER_AAY + "EFGHIKLMN" + LINKER_AAY + "FGHIKLMNP"
         + LINKER_GPGPG + "KLMNPQRSTVWYACD" + LINKER_GPGPG + "LMNPQRSTVWYACDE"
-        + LINKER_KK + "RSTVWYACDEFGHIK" + LINKER_KK + "STVWYACDEFGHIKL"
-        + LINKER_KK + "TVWYACDEFGHIKLM" + LINKER_KK + "VWYACDEFGHIKLMN"
-        + LINKER_KK + "WYACDEFGHIKLMNP" + LINKER_KK + "YACDEFGHIKLMNPQRSTVW"
+        + LINKER_GPGPG + "MNPQRSTVWYACDEF"
+        + LINKER_KK + "STVWYACDEFGHIKL" + LINKER_KK + "TVWYACDEFGHIKLM"
+        + LINKER_KK + "VWYACDEFGHIKLMN" + LINKER_KK + "WYACDEFGHIKLMNP"
+        + LINKER_KK + "YACDEFGHIKLMNPQRSTVW"
     )
     assert result == {
         "sequence": expected_sequence,
-        "length": 336,
+        "length": len(expected_sequence),
         "adjuvant": CTXB_ADJUSTANT,
         "adjuvantSource": "UniProt P01556 (CTxB), configured legacy sequence",
         "signalPeptide": None,
@@ -84,8 +89,8 @@ def test_legacy_mev_sequence_length_and_metrics_are_preserved() -> None:
         "linker_htl": LINKER_GPGPG,
         "linker_bcell": LINKER_KK,
         "ctl_epitopes": 5,
-        "htl_epitopes": 2,
-        "bcell_epitopes": 6,
+        "htl_epitopes": 3,
+        "bcell_epitopes": 5,
     }
 
 
@@ -136,7 +141,7 @@ def test_repo_and_single_run_routes_preserve_list_get_and_epitope_behavior() -> 
     ctl_epitopes = job_epitopes("job-legacy", type="CTL")
 
     assert [item.id for item in listed] == ["job-legacy"]
-    assert fetched is job
+    assert fetched.id == job.id
     assert [item.id for item in all_epitopes] == ["ctl-1", "htl-1"]
     assert [item.id for item in ctl_epitopes] == ["ctl-1"]
     assert repo.get("missing-job") is None

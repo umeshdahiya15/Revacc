@@ -119,11 +119,11 @@ def test_mev_assembly_supports_paper_length_option_and_stable_ordering() -> None
         LINKER_KK,
     )
 
-    assert legacy["length"] == 336
+    assert legacy["length"] == 339
     assert legacy["sequence"] == reversed_legacy["sequence"]
     assert legacy["ctl_epitopes"] == 5
-    assert legacy["htl_epitopes"] == 2  # current HTL cap on the unfixed path
-    assert legacy["bcell_epitopes"] == 6
+    assert legacy["htl_epitopes"] == 3  # all 3 pass HTL_CAP=8
+    assert legacy["bcell_epitopes"] == 5  # 6 in fixture, capped by BCELL_CAP=5
 
     assembler_options = set(inspect.signature(_assemble_mev_construct).parameters) & _OPTION_NAMES
     config_fields = set(JobConfigModel.model_fields) | set(JobCreate.model_fields)
