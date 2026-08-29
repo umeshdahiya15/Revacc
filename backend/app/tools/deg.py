@@ -22,6 +22,21 @@ DEG_ANNOTATION_URL = "http://tubic.org/deg/public/download/deg_annotation_p.csv.
 REFERENCE_ORGANISM = "Streptococcus agalactiae"
 REFERENCE_STRAIN = ""
 DEG_ENTRY = ""
+
+# The paper-scale essentiality search uses the complete DEG10 bacterial
+# protein FASTA (provisioned by blastdb_local), not the small species-only
+# annotation subset. Keep the scope names here so runner.py and callers share
+# one normalization/selection contract.
+DEG10_SCOPE = "deg10_bacteria"
+_DEG10_SCOPE_ALIASES = frozenset({
+    "all",
+    "all_deg",
+    "all_organisms",
+    "deg10",
+    DEG10_SCOPE,
+})
+_SPECIES_SCOPE_ALIASES = frozenset({"species", "species_wide", "organism", "pathogen"})
+
 MAX_RETRIES = 3
 REQUEST_TIMEOUT = 90.0
 
@@ -168,6 +183,47 @@ async def fetch_essential_genes(
 def essential_uids(genes: list[EssentialGene]) -> list[int]:
     """NCBI protein UIDs that a remote BLAST search should be restricted to."""
     return [g.gi for g in genes]
+
+def normalize_scope(scope: str | None) -> str:
+    """Normalize the public ``DEG_SCOPE`` setting.
+
+    ``all`` is retained as the default for compatibility, but now explicitly
+    means the complete DEG10 bacterial reference used by the paper-calibrated
+    runner. Unknown non-empty values are treated as explicit organism names so
+    existing deployments can continue to select a species by name.
+    """
+    value = (scope or DEG10_SCOPE).strip().lower()
+    if value in _DEG10_SCOPE_ALIASES:
+        return DEG10_SCOPE
+    if value in _SPECIES_SCOPE_ALIASES:
+        return "species"
+    return value
+
+
+def organism_for_scope(scope: str | None, pathogen: str | None = None) -> str | None:
+    """Return the organism filter for a configured DEG scope.
+
+    ``None`` selects DEG10's complete bacterial reference. ``species`` (and
+    its aliases) selects the job pathogen, falling back to the historical
+    *S. agalactiae* reference. Any other value is an explicit organism name.
+    """
+    normalized = normalize_scope(scope)
+    if normalized == DEG10_SCOPE:
+        return None
+    if normalized == "species":
+        return pathogen or REFERENCE_ORGANISM
+    return scope.strip() if scope and scope.strip() else REFERENCE_ORGANISM
+
+
+def reference_label_for_scope(
+    scope: str | None,
+    organism: str | None,
+) -> str:
+    """Human-readable reference label matching the selected database."""
+    if normalize_scope(scope) == DEG10_SCOPE:
+        return "DEG 10 (complete bacterial essential-protein set)"
+    return reference_label(organism)
+
 
 def reference_label(organism: str | None = REFERENCE_ORGANISM) -> str:
     return "DEG all organisms" if organism is None else f"DEG species-wide ({organism})"

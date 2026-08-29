@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-@dataclass(frozen=True)
+@dataclass
 class ToolUnavailableError(RuntimeError):
     """Raised when a pipeline tool cannot be reached and must be run manually.
 
@@ -22,6 +22,9 @@ class ToolUnavailableError(RuntimeError):
     tool_name: str
     reason: str
     workaround: str
+    # Optional data must already be reduced to a public-safe projection by
+    # its caller. The engine adds it only as an additive step-result field.
+    public_status: dict[str, object] | None = None
 
     def __str__(self) -> str:
         return f"{self.tool_name}: {self.reason} — {self.workaround}"

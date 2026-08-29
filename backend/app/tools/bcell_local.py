@@ -7,7 +7,7 @@ Based on:
 - Karplus-Schulz flexibility scale
 - Van Gunsteren hydrophilicity
 
-Threshold: propensity score average > 0.4 → linear B-cell epitope.
+Threshold: propensity score average >= 0.5 → local B-cell analysis.
 We use a simplified version combining multiple scales.
 """
 from __future__ import annotations
@@ -52,7 +52,7 @@ SURFACE_ACCESS = {
 
 # Window size for averaging (BepiPred default)
 WINDOW_SIZE = 7
-THRESHOLD = 0.40
+THRESHOLD = 0.5
 
 
 def _window_score(seq: str, pos: int, scale: dict, window: int = WINDOW_SIZE) -> float:
@@ -212,11 +212,19 @@ def predict_ellipro_epitope(
     avg_score = (surface_ratio * 0.7 + domain_score * 0.3)
     is_epitope = avg_score >= 0.4
 
+    # Extract contiguous surface-exposed fragments for conformational epitope candidates
+    surface_positions = []
+    for i, aa in enumerate(seq):
+        if SURFACE_ACCESS.get(aa.upper(), 0.5) >= 0.6:
+            surface_positions.append(i + 1)
+    epitope_fragments = _extract_fragments(surface_positions)
+
     return {
         "discotope_score": round(avg_score, 4),
         "is_epitope": is_epitope,
         "surface_residue_ratio": round(surface_ratio, 4),
         "ig_domains_count": len(ig_domains) if ig_domains else 0,
+        "epitope_fragments": epitope_fragments,
         "method": "ellipro_local",
     }
 

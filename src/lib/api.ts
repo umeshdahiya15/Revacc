@@ -4,12 +4,12 @@
  * URL resolution (in priority order):
  *   1. NEXT_PUBLIC_API_URL env var (set by the frontend deployment)
  *   2. User-configured URL in Settings (localStorage)
- *   3. Railway backend fallback (including SSR and missing-env deployments)
+ *   3. Localhost only during local browser development
  */
 
 import type { ActivityEntry, Epitope, Job } from "@/types";
 
-export const DEFAULT_API_URL = "https://revacc-production.up.railway.app";
+export const DEFAULT_API_URL = "";
 
 export class ApiError extends Error {
   status: number;
@@ -76,8 +76,14 @@ function resolveApiBase(): string {
     } catch { /* ignore */ }
   }
 
-  // Keep deployed and SSR requests pointed at the configured backend even
-  // when NEXT_PUBLIC_API_URL is missing from the frontend environment.
+  // Never silently route a deployed frontend to an unrelated backend. Local
+  // development may still use the backend on the same machine.
+  if (typeof window !== "undefined") {
+    const hostname = window.location?.hostname?.toLowerCase();
+    if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]") {
+      return "http://localhost:8000";
+    }
+  }
   return DEFAULT_API_URL;
 }
 
@@ -143,6 +149,14 @@ export async function apiRequest<T>(
 
 export function wsUrl(jobId: string): string {
   const base = normalizeBaseUrl(resolveApiBase());
+  if (!base && typeof window !== "undefined") {
+    const location = window.location;
+    if (location) {
+      const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+      return `${protocol}//${location.host}/ws/pipeline/${jobId}`;
+    }
+    return `ws://localhost:8000/ws/pipeline/${jobId}`;
+  }
   const wsBase = base.replace(/^http/, "ws");
   return `${wsBase}/ws/pipeline/${jobId}`;
 }
@@ -189,6 +203,70 @@ export async function fetchJobs(): Promise<Job[]> {
  */
 export async function fetchEpitopes(jobId: string): Promise<Epitope[]> {
   return apiRequest<Epitope[]>(`/api/jobs/${jobId}/epitopes`, { timeoutMs: 4000 });
+}
+
+export interface StructureModelAttachment {
+  sequence?: string;
+  provider: string;
+  method: string;
+  source?: "user-provided" | "real";
+  modelUrl?: string;
+  modelFormat?: "pdb";
+  coordinateText?: string;
+  attachmentId?: string;
+  fileName?: string;
+  contentType?: string;
+  sequenceIdentity?: number;
+  sequenceCoverage?: number;
+  validationMethod?: string;
+}
+
+export interface StructureRequirements {
+  jobId: string;
+  step: "11-2";
+  sequence: string;
+  sequenceLength: number;
+  sequenceFingerprint: string;
+  requiredFormat: string;
+  validation: {
+    identityPercent: number;
+    coveragePercent: number;
+    coordinateAnalysisRequired: boolean;
+  };
+  attachmentStatus?: "attached" | "missing";
+  backendInstanceId?: string;
+  sessionStore?: "in-memory" | string;
+  workflow: string;
+}
+
+/** Return the exact assembled sequence required for a real Step 11-2 model. */
+export function fetchStructureRequirements(jobId: string): Promise<StructureRequirements> {
+  return apiRequest<StructureRequirements>(`/api/jobs/${jobId}/structure/requirements`);
+}
+
+export interface StructureModelAttachmentResponse {
+  status: "attached";
+  source: string;
+  provider: string;
+  method: string;
+  modelUrl?: string | null;
+  attachment?: Record<string, string>;
+  coordinateDataAvailable: boolean;
+  syntheticValues: false;
+  backendInstanceId?: string;
+  sessionStore?: "in-memory" | string;
+}
+
+/** Attach a real external PDB/model record for the exact assembled MEV. */
+export function attachStructureModel(
+  jobId: string,
+  attachment: StructureModelAttachment,
+): Promise<StructureModelAttachmentResponse> {
+  return apiRequest<StructureModelAttachmentResponse>(`/api/jobs/${jobId}/structure`, {
+    method: "POST",
+    body: attachment,
+    timeoutMs: 30000,
+  });
 }
 
 export const COMPARISON_METRICS = [

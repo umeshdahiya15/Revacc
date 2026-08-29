@@ -54,25 +54,25 @@ Currently implemented (all 50 steps have registered runners):
 | 3-3 | VFDB | REAL (local BLASTp) |
 | 3-4 | Human Homology | REAL (NCBI BLASTp) |
 | 4-1 | ProtParam | REAL (BioPython) |
-| 4-2 | SwissModel | Pause (auth-gated) |
-| 4-3 | ERRAT | Pause (domain for sale) |
+| 4-2 | Structure Provider | REAL AlphaFold DB alternate by default; explicit SWISS-MODEL selection pauses unless an authenticated official client is configured |
+| 4-3 | Local coordinate quality analysis | REAL AlphaFold DB PDB coordinates; explicitly not official ERRAT |
 | 4-4 | SOPMA | Pause (no REST API) |
 | 5-1 | IEDB MHC-I | REAL |
 | 5-2 | VaxiJen (CTL) | Pause |
 | 5-3 | AlgPred (CTL) | Pause |
 | 5-4 | ToxinPred (CTL) | Pause |
-| 5-5 | Immunogenicity | REAL (computation) |
+| 5-5 | Immunogenicity | REAL local analysis over real IEDB allele/rank or IC50 inputs; never labeled as IEDB immunogenicity |
 | 6-1 | IEDB MHC-II | REAL |
 | 6-2–6-7 | IFNepitope/IL4Pred/IL10Pred/VaxiJen/AlgPred/ToxinPred | Pause |
 | 7-1–7-5 | ABCpred/VaxiJen/AlgPred/ToxinPred/Ellipro | Pause |
 | 8-1 | Pop Coverage | REAL (IEDB-AR) |
-| 8-2 | Epitope Overlap | REAL (computation) |
+| 8-2 | Epitope Overlap | REAL local normalized sequence-containment analysis over selected CTL/HTL/B-cell rows |
 | 9-1 | Adjuvant Selection | Pause (manual) |
 | 9-2 | MEV Assembly | REAL |
 | 10-1 | ProtParam (MEV) | REAL (BioPython) |
 | 10-2–10-5 | VaxiJen/AlgPred/ToxinPred/Protein-Sol | Pause |
 | 11-1 | SOPMA | Pause |
-| 11-2 | AlphaFold DB | REAL (REST API) |
+| 11-2 | AlphaFold DB / external model | Pauses for novel MEV unless a real exact-sequence PDB or documented provider model is attached; AlphaFold DB has no automatic prediction path for this construct |
 | 11-3 | Ramachandran | REAL (BioPython) |
 | 11-4 | ERRAT | Pause |
 | 11-5 | ProSA | Pause |
@@ -112,6 +112,8 @@ sync with `src/types/index.ts` and `src/lib/mockData.ts`. The frontend:
 | `MEV_PHOBIUS_CACHE` | `/tmp/mev-phobius-cache` | Writable path for Phobius results cache |
 | `PSORTB_BIN` / `PSORTB_PATH` | *(unset)* | Optional path to a PSORTb executable; missing PSORTb is reported as unavailable |
 | `ALPHAFOLD_EMAIL` | *(empty)* | Optional contact email for AlphaFold DB API requests |
+| `MEV_STRUCTURE_PROVIDER` | `alphafold_db` | Step 4-2 provider; `alphafold_db` is the real, explicitly labeled alternate used by default; `swissmodel` pauses unless an official authenticated client is available |
+| `SWISSMODEL_API_TOKEN` | *(empty)* | Optional SWISS-MODEL credential supplied only through Railway secrets; never commit a token or place one in tests |
 
 ## Railway deployment
 
@@ -135,10 +137,10 @@ MEV_CORS_ORIGINS=https://revacc.vercel.app
 Vercel handoff for the confirmed Railway service:
 
 ```text
-NEXT_PUBLIC_API_URL=https://revacc-production.up.railway.app
+NEXT_PUBLIC_API_URL=https://revacc-production-6342.up.railway.app
 ```
 
-The `https://` scheme is required for deployed frontend and backend URLs. Set `NEXT_PUBLIC_API_URL` in the Vercel project environment and redeploy, then verify the browser can call `https://revacc-production.up.railway.app/api/health` and open the WebSocket endpoint at `wss://revacc-production.up.railway.app/ws/pipeline/<job-id>`. The frontend already gives this variable priority and does not require an ngrok URL.
+The `https://` scheme is required for deployed frontend and backend URLs. Set `NEXT_PUBLIC_API_URL` in the Vercel project environment and redeploy, then verify the browser can call `https://revacc-production-6342.up.railway.app/api/health` and open the WebSocket endpoint at `wss://revacc-production-6342.up.railway.app/ws/pipeline/<job-id>`. The frontend already gives this variable priority and does not require an ngrok URL.
 
 Railway limitations and external prerequisites:
 

@@ -76,7 +76,7 @@ export const PIPELINE_PHASES: PhaseDefinition[] = [
       { id: "5-2", number: 2, name: "CTL Antigenicity", tool: "VaxiJen" },
       { id: "5-3", number: 3, name: "CTL Allergenicity", tool: "AlgPred 2.0" },
       { id: "5-4", number: 4, name: "CTL Toxicity", tool: "ToxinPred" },
-      { id: "5-5", number: 5, name: "CTL Immunogenicity", tool: "IEDB" },
+      { id: "5-5", number: 5, name: "CTL Immunogenicity", tool: "Local analysis (IEDB inputs)" },
     ],
   },
   {
@@ -111,7 +111,7 @@ export const PIPELINE_PHASES: PhaseDefinition[] = [
     icon: Globe,
     steps: [
       { id: "8-1", number: 1, name: "Population Coverage Analysis", tool: "IEDB-AR" },
-      { id: "8-2", number: 2, name: "CTL-HTL Epitope Overlap Analysis", tool: "Custom" },
+      { id: "8-2", number: 2, name: "CTL-HTL Epitope Overlap Analysis", tool: "Local sequence overlap" },
     ],
   },
   {
@@ -305,7 +305,7 @@ export const TOOL_REGISTRY: ToolInfo[] = [
   { id: "humanproteome", name: "Human Proteome (NCBI)", phase: 3, usedFor: "Human homology screening", apiKind: "api", availability: "online" },
   { id: "protparam", name: "ProtParam", phase: 4, usedFor: "Physicochemical properties", apiKind: "local", availability: "local" },
   { id: "swissmodel", name: "SwissModel", phase: 4, usedFor: "Homology 3D modelling", apiKind: "api", endpoint: "https://swissmodel.expasy.org/api", availability: "online" },
-  { id: "alphafold", name: "AlphaFold", phase: 11, usedFor: "MEV 3D structure prediction", apiKind: "api", endpoint: "https://alphafold.ebi.ac.uk", availability: "online" },
+  { id: "alphafold", name: "AlphaFold", phase: 11, usedFor: "Existing database models only; novel MEV requires an attached external prediction", apiKind: "api", endpoint: "https://alphafold.ebi.ac.uk", availability: "online" },
   { id: "errat", name: "ERRAT", phase: 4, usedFor: "Structure quality validation", apiKind: "api", endpoint: "https://saves.mbi.ucla.edu", availability: "online" },
   { id: "sopma", name: "SOPMA", phase: 4, usedFor: "Secondary structure prediction", apiKind: "api", endpoint: "https://npsa-prabi.ibcp.fr", availability: "online" },
   { id: "iedb_mhci", name: "IEDB MHC-I (NetMHCpan)", phase: 5, usedFor: "CTL epitope prediction", apiKind: "api", endpoint: "https://tools.iedb.org/mhci", availability: "rate_limited" },

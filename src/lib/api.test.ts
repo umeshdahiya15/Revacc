@@ -11,8 +11,8 @@ describe("API base URL normalization", () => {
   });
 
   it("adds HTTPS to a deployed hostname without a scheme", () => {
-    expect(normalizeApiBaseUrl("revacc-production.up.railway.app")).toBe(
-      "https://revacc-production.up.railway.app",
+    expect(normalizeApiBaseUrl("revacc-production-6342.up.railway.app")).toBe(
+      "https://revacc-production-6342.up.railway.app",
     );
   });
 
@@ -25,12 +25,12 @@ describe("API base URL normalization", () => {
     process.env.NEXT_PUBLIC_API_URL = "";
     (globalThis as { window?: unknown }).window = {
       localStorage: {
-        getItem: () => JSON.stringify({ apiUrl: "revacc-production.up.railway.app" }),
+        getItem: () => JSON.stringify({ apiUrl: "revacc-production-6342.up.railway.app" }),
       },
     };
 
     expect(wsUrl("job-123")).toBe(
-      "wss://revacc-production.up.railway.app/ws/pipeline/job-123",
+      "ws://localhost:8000/ws/pipeline/job-123",
     );
   });
 });

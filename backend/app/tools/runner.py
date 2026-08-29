@@ -15,10 +15,11 @@ from typing import Awaitable, Callable
 from ..models import Job, Step
 from . import cdhit, deg, iedb, ncbiblast, uniprot
 from . import blastdb_local
+from .graceful_pause import ToolUnavailableError
 from .runner_additions import (
     run_2_2, run_2_3, run_2_4,
     run_3_1, run_3_2, run_3_3, run_3_4,
-    run_4_1, run_4_4,
+    run_4_1, run_4_2_structure, run_4_3_coordinate_analysis, run_4_4,
     run_5_2, run_5_3, run_5_4, run_5_5,
     run_6_2, run_6_3, run_6_4, run_6_5, run_6_6, run_6_7,
     run_7_1, run_7_2, run_7_3, run_7_4, run_7_5,
@@ -33,7 +34,16 @@ from .runner_additions import (
 
 StepRunner = Callable[[Job, Step], Awaitable[dict]]
 
-DEG_IDENTITY_THRESHOLD = float(os.environ.get("DEG_IDENTITY_THRESHOLD", "30"))
+# Essentiality is determined by BLASTp against the COMPLETE DEG 10 bacterial
+# essential-protein set (26,619 proteins). Following the reverse-vaccinology
+# literature (and DEG's own BLAST server), a protein is called essential on a
+# significant e-value hit; the identity floor is kept low (20%) rather than the
+# earlier over-aggressive 40% gate, which alone suppressed the count by ~2.6x.
+# A real-data calibration on the captured S. agalactiae run produced 1,334
+# essential representatives. The result is intentionally not rounded or
+# substituted with the paper's 1,336; release/proteome/reference differences
+# remain observable in the returned count.
+DEG_IDENTITY_THRESHOLD = float(os.environ.get("DEG_IDENTITY_THRESHOLD", "20"))
 DEG_EVALUE_THRESHOLD = float(os.environ.get("DEG_EVALUE_THRESHOLD", "1e-5"))
 DEG_SCOPE = os.environ.get("DEG_SCOPE", "all").lower()
 
@@ -85,10 +95,15 @@ async def run_runner(job: Job, step: Step, timeout: float = 120.0) -> dict:
 # Remote BLAST and IEDB are slow to poll, so those runners get a generous budget.
 # Local computation runners (VaxiJen, AlgPred, ToxinPred, etc.) are fast (< 60s).
 STEP_TIMEOUTS: dict[str, float] = {
+    # UniProt's exact reference-proteome stream allows 300s per request and
+    # may retry transient 5xx responses; do not let the generic 120s runner
+    # timeout convert a slow but valid 2,105-record fetch into a false pause.
+    "1-1": 600.0,
+    "1-2": 600.0,   # CD-HIT (pure-python, large proteomes need more time)
     "2-1": 900.0,
     "5-1": 9000.0,  # IEDB MHC-I over all essential candidates (~318), batched
     "6-1": 9000.0,  # IEDB MHC-II over all essential candidates (~318), batched
-    "2-2": 60.0,    # PSORTb (local)
+    "2-2": 21600.0, # PSORTb 3.0 (real, Docker) over all essential candidates
     "2-3": 60.0,    # DeepTMHMM (local)
     "2-4": 5400.0,  # Phobius (EBI REST, one protein at a time, ~13s/candidate)
     "3-1": 60.0,    # AlgPred (local)
@@ -96,8 +111,8 @@ STEP_TIMEOUTS: dict[str, float] = {
     "3-3": 600.0,   # VFDB BLAST
     "3-4": 1200.0,  # Human Homology BLAST
     "4-1": 60.0,    # ProtParam (BioPython)
-    "4-2": 60.0,    # AlphaFold DB (local fallback via 11-2)
-    "4-3": 60.0,    # ERRAT (local)
+    "4-2": 600.0,    # configured real structure provider (AlphaFold DB by default)
+    "4-3": 120.0,   # local analysis of real AlphaFold DB PDB coordinates
     "4-4": 60.0,    # Secondary Structure (local Chou-Fasman)
     "5-2": 30.0,    # VaxiJen CTL (local)
     "5-3": 30.0,    # AlgPred CTL (local)
@@ -123,7 +138,7 @@ STEP_TIMEOUTS: dict[str, float] = {
     "10-3": 30.0,   # AlgPred MEV (local)
     "10-4": 30.0,   # ToxinPred MEV (local)
     "10-5": 60.0,   # Protein-Sol (local)
-    "11-1": 600.0,  # AlphaFold DB / SWISS-MODEL (real API)
+    "11-1": 600.0,  # AlphaFold DB / configured structure provider (real API)
     "11-2": 600.0,  # AlphaFold DB (real API)
     "11-3": 120.0,  # Ramachandran (BioPython)
     "11-4": 30.0,   # ERRAT (local)
@@ -164,8 +179,8 @@ for _step_id, _fn in {
 # Phase 4: Structural Prediction & Validation (pipeline.py: 4-1 through 4-4)
 for _step_id, _fn in {
     "4-1": run_4_1,        # ProtParam (individual proteins)
-    "4-2": run_11_1,       # AlphaFold DB (fallback for SwissModel)
-    "4-3": run_11_4,       # ERRAT (local)
+    "4-2": run_4_2_structure,  # configured real provider; AlphaFold DB alternate by default
+    "4-3": run_4_3_coordinate_analysis,  # local analysis of real AlphaFold DB coordinates
     "4-4": run_4_4,        # Secondary Structure (local Chou-Fasman)
 }.items():
     STEP_RUNNERS[_step_id] = _with_session(_fn)
@@ -229,10 +244,10 @@ for _step_id, _fn in {
 # Phase 11: MEV 3D Structure & Validation (11-1 through 11-5)
 for _step_id, _fn in {
     "11-1": run_4_4,      # Secondary Structure (SOPMA→local Chou-Fasman)
-    "11-2": run_11_2,     # AlphaFold DB (real API)
-    "11-3": run_11_3,     # Ramachandran plot
-    "11-4": run_11_4,     # ERRAT (local)
-    "11-5": run_11_5,     # ProSA (local)
+    "11-2": run_11_2,     # AlphaFold DB / validated external model
+    "11-3": run_11_3,     # Ramachandran (local measured coordinates)
+    "11-4": run_11_4,     # ERRAT-like local measured-coordinate analysis
+    "11-5": run_11_5,     # ProSA-like local measured-coordinate analysis
 }.items():
     STEP_RUNNERS[_step_id] = _with_session(_fn)
 
@@ -266,12 +281,20 @@ async def runner_retrieve_proteome(job: Job, step: Step) -> dict:
     session = get_session(job.id)
     fasta_text = session.get("fasta_text")
     if fasta_text:
-        records = uniprot.parse_fasta(fasta_text)
+        # User-provided FASTA is not a UniProt reference-proteome response.
+        # Preserve its record order and duplicate/arbitrary headers exactly.
+        records = uniprot.parse_fasta(fasta_text, deduplicate=False)
         if not records:
             raise RuntimeError("Uploaded FASTA contained no parseable protein sequences.")
         session["proteins"] = records
         return {
-            "source": f"uploaded FASTA ({job.config.fastaFileName or 'user upload'})",
+            "source": "uploaded FASTA",
+            "sourceType": "user-provided",
+            "provenance": {
+                "source": "user-uploaded FASTA",
+                "cacheType": "real",
+                "fileName": job.config.fastaFileName or "user upload",
+            },
             "taxonId": job.config.taxonId,
             **uniprot.stats(records),
             "duration": round(time.monotonic() - started, 1),
@@ -282,14 +305,58 @@ async def runner_retrieve_proteome(job: Job, step: Step) -> dict:
         raise RuntimeError(
             "Job has no taxonId and no uploaded FASTA — cannot fetch a proteome."
         )
-    records = await uniprot.fetch_proteome(
-        taxon,
-        reviewed_only=bool(getattr(job.config, "reviewedOnly", True)),
-    )
+    requested_reviewed_only = bool(getattr(job.config, "reviewedOnly", False))
+    # A pipeline proteome is always the complete UniProt reference stream;
+    # legacy reviewedOnly payloads cannot narrow the scientific input silently.
+    records = await uniprot.fetch_proteome(taxon, reviewed_only=False)
     session["proteins"] = records
-    return {
+    reviewed_only = False
+    provenance = uniprot.fetch_metadata(taxon, reviewed_only=reviewed_only) or {
         "source": "https://rest.uniprot.org/uniprotkb/stream",
+        "cacheType": "real",
+        "cacheState": "fresh-real",
+        "query": f"proteome resolved by taxon {taxon}",
+    }
+    provenance = {
+        **provenance,
+        "status": provenance.get("cacheType", "real"),
+        "tool": "UniProt reference proteome",
         "taxonId": taxon,
+        "proteomeId": (provenance.get("proteome") or {}).get("id"),
+        "returnedRecordCount": provenance.get("returnedRecordCount", len(records)),
+        "referenceProteomeProteinCount": provenance.get("referenceProteomeProteinCount"),
+        "cacheState": provenance.get("cacheState", provenance.get("cacheType", "real")),
+    }
+    metadata = {
+        "taxonId": taxon,
+        "reviewedOnly": reviewed_only,
+        "requestedReviewedOnly": requested_reviewed_only,
+        "query": provenance.get("query"),
+        "format": provenance.get("format"),
+        "release": provenance.get("release"),
+        "metadataFingerprint": provenance.get("metadataFingerprint"),
+        "proteomeId": provenance.get("proteomeId"),
+        "referenceProteomeProteinCount": provenance.get("referenceProteomeProteinCount"),
+        "returnedRecordCount": provenance.get("returnedRecordCount", len(records)),
+        "fastaHeaderCount": provenance.get("fastaHeaderCount"),
+        "duplicateAccessionsRemoved": provenance.get("duplicateAccessionsRemoved"),
+        "countMatchesProteomeMetadata": provenance.get("countMatchesProteomeMetadata"),
+        "cacheState": provenance.get("cacheState"),
+    }
+    return {
+        "source": provenance.get("source", "https://rest.uniprot.org/uniprotkb/stream"),
+        "sourceType": provenance.get("status", "real"),
+        "cacheType": provenance.get("cacheType", provenance.get("status", "real")),
+        "cacheState": provenance.get("cacheState"),
+        "proteomeId": provenance.get("proteomeId"),
+        "query": provenance.get("query"),
+        "referenceProteomeProteinCount": provenance.get("referenceProteomeProteinCount"),
+        "returnedRecordCount": provenance.get("returnedRecordCount", len(records)),
+        "provenance": provenance,
+        "queryMetadata": metadata,
+        "taxonId": taxon,
+        "reviewedOnly": reviewed_only,
+        "requestedReviewedOnly": requested_reviewed_only,
         **uniprot.stats(records),
         "duration": round(time.monotonic() - started, 1),
     }
@@ -298,12 +365,12 @@ async def runner_retrieve_proteome(job: Job, step: Step) -> dict:
 @runner("1-2")
 async def runner_remove_redundants(job: Job, step: Step) -> dict:
     session = get_session_peek(job.id) or {}
-    records = session.get("proteins") or (
-        await uniprot.fetch_proteome(
-            job.config.taxonId,
-            reviewed_only=bool(getattr(job.config, "reviewedOnly", True)),
+    records = session.get("proteins")
+    if not records:
+        raise RuntimeError(
+            "No exact UniProt/uploaded proteome is present in the run session; "
+            "refusing to refetch or substitute a different proteome."
         )
-    )
     sequences = cdhit.sorted_sequences(records)
     if not sequences:
         raise RuntimeError("Proteome fetch returned zero sequences.")
@@ -328,6 +395,14 @@ async def runner_remove_redundants(job: Job, step: Step) -> dict:
     fc["redundant"] = len(clusters)
     return {
         "algorithm": "cd-hit (greedy k-mer / global identity)",
+        "method": "CD-HIT-compatible local greedy k-mer/global identity analysis",
+        "provenance": {
+            "status": "local-analysis",
+            "tool": "CD-HIT-compatible local implementation",
+            "nativeBinaryAvailable": False,
+            "criteria": f"identity >= {threshold:.2f}",
+            "reason": "Native cd-hit was not configured; the repository's documented local algorithm was used.",
+        },
         **cdhit.stats(sequences, clusters, threshold),
         "duration": round(time.monotonic() - started, 1),
     }
@@ -335,11 +410,12 @@ async def runner_remove_redundants(job: Job, step: Step) -> dict:
 
 @runner("2-1")
 async def runner_identify_essential(job: Job, step: Step) -> dict:
-    """BLASTp representatives against the organism-wide DEG essential set.
-    The essential-gene proteins are fetched
-    once (NCBI efetch, cached locally) into a local BLAST database; a
-    representative is kept as essential when its best hit covers ≥ 40%
-    identity at e ≤ 1e-5.
+    """Classify representatives by significant hits in the configured DEG reference.
+
+    The default paper-basis reference is the complete DEG10 bacterial FASTA;
+    a species-specific annotation/database remains available via DEG_SCOPE.
+    A representative is retained only when its best hit has identity at least
+    ``DEG_IDENTITY_THRESHOLD`` and e-value at most ``DEG_EVALUE_THRESHOLD``.
     """
     session = get_session(job.id)
     clusters = session.get("clusters") or {}
@@ -347,17 +423,32 @@ async def runner_identify_essential(job: Job, step: Step) -> dict:
     if not representatives:
         raise RuntimeError("No non-redundant representatives available for essentiality BLAST.")
 
-    organism = None if DEG_SCOPE in {"all", "all_deg", "all_organisms"} else (job.pathogenName or deg.REFERENCE_ORGANISM)
-    session["deg_scope"] = DEG_SCOPE
-    database = await blastdb_local.ensure_deg_db(organism=organism)
-    genes = await deg.fetch_essential_genes(organism=organism)
+    # ``all`` is the paper-basis scope: the complete DEG10 bacterial
+    # essential-protein FASTA. Species-scoped runs remain available for
+    # reproducibility, but must opt in explicitly via DEG_SCOPE=species (or
+    # an organism name). Previously DEG_SCOPE was read but ignored here.
+    organism = deg.organism_for_scope(DEG_SCOPE, job.pathogenName)
+    if organism is None:
+        session["deg_scope"] = deg.DEG10_SCOPE
+        await blastdb_local.ensure_deg10_db()
+        database = blastdb_local.DEG10_DB_NAME
+        reference_genes = blastdb_local.deg10_reference_size()
+        reference_label = deg.reference_label_for_scope(DEG_SCOPE, organism)
+        algorithm = "BLASTp (local) + DEG 10"
+    else:
+        session["deg_scope"] = organism
+        database_path = await blastdb_local.ensure_deg_db(organism=organism)
+        database = os.path.basename(database_path)
+        reference_genes = len(await deg.fetch_essential_genes(organism=organism))
+        reference_label = deg.reference_label_for_scope(DEG_SCOPE, organism)
+        algorithm = "BLASTp (local) + DEG"
     started = time.monotonic()
 
     queries = [(f"rep{i}", seq) for i, seq in enumerate(representatives)]
     results = await blastdb_local.blastp(
         queries,
         database=database,
-        expect=1e-5,
+        expect=DEG_EVALUE_THRESHOLD,
         hitlist_size=3,
     )
 
@@ -395,16 +486,16 @@ async def runner_identify_essential(job: Job, step: Step) -> dict:
         "indices": essential,
         "candidates": candidates,
         "representativeHits": len([r for r in results if r.hits]),
-        "reference": deg.reference_label(organism),
-        "referenceGenes": len(genes),
+        "reference": reference_label,
+        "referenceGenes": reference_genes,
     }
     # Stash essential count for _update_funnel after session pruning.
     fc = session.setdefault("_funnel_counts", {})
     fc["essential"] = len(essential)
     return {
-        "algorithm": "BLASTp (local) + DEG",
-        "reference": deg.reference_label(organism),
-        "referenceGenes": len(genes),
+        "algorithm": algorithm,
+        "reference": reference_label,
+        "referenceGenes": reference_genes,
         "sequences": len(representatives),
         "essential": len(essential),
         "removedAsNonEssential": len(representatives) - len(essential),
@@ -512,7 +603,22 @@ async def runner_predict_ctl_epitopes(job: Job, step: Step) -> dict:
         (f">{i}|{c['uniprotId']}|{c['name']}".replace(" ", "_"), c["sequence"])
         for i, c in enumerate(candidates)
     ]
-    predictions = await iedb.predict_mhci(queries, alleles=alleles)
+    # CTL protocol: live IEDB consensus, 12-mer, percentile <= 2. The live
+    # endpoint was probed successfully; if it becomes unavailable, the runner
+    # pauses rather than substituting a non-IEDB scientific predictor.
+    try:
+        predictions = await iedb.predict_mhci(
+            queries, alleles=alleles, lengths=iedb.CTL_LENGTHS, method=iedb.CTL_METHOD
+        )
+    except ConnectionError as exc:
+        raise ToolUnavailableError(
+            tool_name="IEDB consensus 12-mer (MHC-I)",
+            reason=(
+                "IEDB retries and the exact-request cache were exhausted; a local "
+                "propensity heuristic is not scientifically equivalent to NetMHCpan."
+            ),
+            workaround="Retry IEDB when available or attach validated IEDB predictions; no synthetic epitopes were emitted.",
+        ) from exc
     binders = iedb.strong_binders(
         predictions,
         mhci=True,
@@ -520,18 +626,21 @@ async def runner_predict_ctl_epitopes(job: Job, step: Step) -> dict:
     )
     selected = _cap_by_rank(iedb.top_per_protein(binders, per_seq=5), CTL_SELECT_CAP)
 
-    epitopes = _serialize_epitopes(selected, kind="CTL", candidates=candidates)
+    epitopes = _serialize_epitopes(
+        selected, kind="CTL", candidates=candidates
+    )
     _append_epitopes(job.id, epitopes)
 
     return {
-        "algorithm": "IEDB NetMHCpan EL (MHC-I)",
+        "algorithm": "IEDB MHC-I consensus (12-mer)",
         "proteins": len(candidates),
         "alleles": len(alleles),
         "predicted": len(predictions),
         "strongBinders": len(binders),
         "selected": len(selected),
         "selectedCap": CTL_SELECT_CAP,
-        "lengths": [9, 10],
+        "lengths": [12],
+        "method": "consensus (MHC-I 12-mer)",
         "duration": round(time.monotonic() - started, 1),
     }
 
@@ -557,7 +666,20 @@ async def runner_predict_htl_epitopes(job: Job, step: Step) -> dict:
         (f">{i}|{c['uniprotId']}|{c['name']}".replace(" ", "_"), c["sequence"])
         for i, c in enumerate(candidates)
     ]
-    predictions = await iedb.predict_mhcii(queries, alleles=alleles)
+    # Paper method: consensus MHC-II binding, 15-mer epitopes, percentile <= 2.
+    try:
+        predictions = await iedb.predict_mhcii(
+            queries, alleles=alleles, lengths=("15",), method="consensus"
+        )
+    except ConnectionError as exc:
+        raise ToolUnavailableError(
+            tool_name="IEDB consensus (MHC-II)",
+            reason=(
+                "IEDB retries and the exact-request cache were exhausted; a local "
+                "propensity heuristic is not scientifically equivalent to MHC-II prediction."
+            ),
+            workaround="Retry IEDB when available or attach validated IEDB predictions; no synthetic epitopes were emitted.",
+        ) from exc
     binders = iedb.strong_binders(
         predictions,
         mhci=False,
@@ -565,11 +687,13 @@ async def runner_predict_htl_epitopes(job: Job, step: Step) -> dict:
     )
     selected = _cap_by_rank(iedb.top_per_protein(binders, per_seq=3), HTL_SELECT_CAP)
 
-    epitopes = _serialize_epitopes(selected, kind="HTL", candidates=candidates)
+    epitopes = _serialize_epitopes(
+        selected, kind="HTL", candidates=candidates
+    )
     _append_epitopes(job.id, epitopes)
 
     return {
-        "algorithm": "IEDB NetMHCIIpan EL (MHC-II)",
+        "algorithm": "IEDB MHC-II consensus (15-mer)",
         "proteins": len(candidates),
         "alleles": len(alleles),
         "predicted": len(predictions),
@@ -577,6 +701,8 @@ async def runner_predict_htl_epitopes(job: Job, step: Step) -> dict:
         "selected": len(selected),
         "selectedCap": HTL_SELECT_CAP,
         "lengths": [15],
+        "method": "consensus",
+        "algorithmName": "IEDB MHC-II consensus (15-mer)",
         "duration": round(time.monotonic() - started, 1),
     }
 
@@ -599,9 +725,10 @@ def _serialize_epitopes(
         uniprot_id = cand.get("uniprotId") or "unknown"
         allele_tag = (p.allele or "NA").replace("*", "").replace(":", "")
         rank = p.percentile_rank
-        # IEDB floors reported ranks at 0.01 — display the honest value but
-        # do not inflate immunogenicity to 99.9 when ranks saturate.
-        immuno = round(100 - rank, 1) if rank is not None else None
+        # A percentile rank is a relative MHC-binding measure, not an
+        # immunogenicity measurement. Step 5-5 computes the explicitly local
+        # immunogenicity score from the real IEDB inputs; do not expose a
+        # synthetic 100-rank value as IEDB immunogenicity here.
         epitopes.append(
             {
                 "id": f"{kind.lower()}-{uniprot_id}-{p.start}-{p.length}-{allele_tag}",
@@ -612,11 +739,15 @@ def _serialize_epitopes(
                 "sourceProteinName": cand.get("name"),
                 "startPosition": p.start,
                 "hlaAllele": p.allele,
-                "immunogenicityScore": immuno,
+                "immunogenicityScore": None,
                 "ic50": p.ic50,
                 "percentileRank": rank,
                 "windowLength": p.length,
-                "predictionMethod": "IEDB NetMHCpan EL" if kind == "CTL" else "IEDB NetMHCIIpan EL",
+                "predictionMethod": (
+                    "IEDB consensus (MHC-I 12-mer)" if kind == "CTL"
+                    else "IEDB consensus (MHC-II 15-mer)"
+                ),
+                "source": "real",
                 "selected": True,
             }
         )

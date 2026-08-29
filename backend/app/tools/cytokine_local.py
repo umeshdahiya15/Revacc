@@ -45,9 +45,9 @@ HLA_SUPERCLASS_II = ["HLA-DRB1*04:01", "HLA-DRB1*04:02", "HLA-DRB1*15:01", "HLA-
 # apply. This ensures strong binders are not missed even with sparse motifs.
 IFN_GAMMA_SCORE_THRESHOLD = 0.45
 IFN_GAMMA_BINDING_THRESHOLD = 0.7
-IL4_SCORE_THRESHOLD = 0.5
+IL4_SCORE_THRESHOLD = 0.2
 IL4_BINDING_THRESHOLD = 0.7
-IL10_SCORE_THRESHOLD = 0.6
+IL10_SCORE_THRESHOLD = -0.3
 IL10_BINDING_THRESHOLD = 0.7
 
 
@@ -197,29 +197,21 @@ def calculate_immunogenicity_score(
     mhc_i_ic50: dict[str, float] | None = None,
     mhc_ii_ic50: dict[str, float] | None = None,
     tap_transport: float | None = None,
+    mhc_i_binding_score: float | None = None,
 ) -> dict:
-    """Calculate immunogenicity score integrating MHC binding, TAP, and processing.
+    """Calculate local immunogenicity from measured or explicitly derived inputs.
 
-    Parameters
-    ----------
-    sequence : str
-        Peptide sequence.
-    mhc_i_ic50 : dict[str, float] | None
-        MHC-I IC50 per allele (nM).
-    mhc_ii_ic50 : dict[str, float] | None
-        MHC-II IC50 per allele (nM).
-    tap_transport : float | None
-        TAP transport efficiency (0-1).
-
-    Returns
-    -------
-    dict
-        Integrated immunogenicity score and components.
+    ``mhc_i_binding_score`` is a normalized binding input supplied by a caller
+    that has a real IEDB percentile rank but no IC50. It is intentionally
+    separate from ``mhc_i_ic50``: an IEDB percentile is a relative rank, not an
+    inferred concentration, and is never converted into a synthetic IC50.
     """
     seq = sequence.upper().strip()
 
     mhc_i_score = 0.0
-    if mhc_i_ic50:
+    if mhc_i_binding_score is not None:
+        mhc_i_score = max(0.0, min(1.0, float(mhc_i_binding_score)))
+    elif mhc_i_ic50:
         mhc_i_scores = [_ic50_to_binding_score(ic50) for ic50 in mhc_i_ic50.values()]
         if mhc_i_scores:
             mhc_i_score = max(mhc_i_scores)

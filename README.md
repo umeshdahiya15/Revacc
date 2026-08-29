@@ -37,13 +37,13 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 
 ## Scientific provenance and unavailable tools
 
-Pipeline outputs distinguish live, cached-real, local-analysis, user-provided, and unavailable results. IEDB CTL/HTL epitopes require a live or cached-real IEDB response; exhausted retries pause the run without synthetic epitope rows. ABCpred, VaxiJen, and AlgPred local analyses are labeled as such when their external services are unavailable. PyDock and GROMACS molecular-dynamics outputs are not implemented/configured and are reported as unavailable in exports until real tools and validated inputs/outputs are supplied.
+Pipeline outputs distinguish live, cached-real, local-analysis, user-provided, and unavailable results. IEDB CTL/HTL epitopes require a live or cached-real IEDB response; exhausted retries pause the run without synthetic epitope rows. Step 4-2 uses the real AlphaFold DB API as the default, explicitly labeled as an AlphaFold DB alternate; it pauses when no target model is found. SWISS-MODEL is never inferred or mislabeled, and any future authenticated provider must receive credentials only from Railway secrets. ABCpred, VaxiJen, and AlgPred local analyses are labeled as such when their external services are unavailable. PyDock and GROMACS molecular-dynamics outputs are not implemented/configured and are reported as unavailable in exports until real tools and validated inputs/outputs are supplied.
 
 ## Deploy the backend on Railway
 
 The repository-root `Dockerfile` is the Railway backend image. It installs the dependencies into the image interpreter, starts production Uvicorn without `--reload`, binds to `0.0.0.0`, and uses Railway's runtime `PORT` (falling back to 8000 only for local `docker run`). See [`backend/README.md`](backend/README.md#railway-deployment) for the exact Railway and Vercel handoff steps.
 
-For the confirmed deployment, set `MEV_CORS_ORIGINS=https://revacc.vercel.app` in Railway and `NEXT_PUBLIC_API_URL=https://revacc-production.up.railway.app` in Vercel. The `https://` scheme is required for deployed URLs; do not use a bare hostname.
+For the confirmed deployment, set `MEV_CORS_ORIGINS=https://revacc.vercel.app` in Railway and `NEXT_PUBLIC_API_URL=https://revacc-production-6342.up.railway.app` in Vercel. The `https://` scheme is required for deployed URLs; do not use a bare hostname.
 
 ## Publish the backend image to GHCR
 

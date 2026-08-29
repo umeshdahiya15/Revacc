@@ -11,7 +11,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-background">
+    <div className="flex h-dvh min-h-dvh w-full overflow-hidden bg-background">
       <aside className="hidden h-full shrink-0 md:block">
         <Sidebar
           collapsed={collapsed}
@@ -29,7 +29,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </SheetContent>
       </Sheet>
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Header onMenuClick={() => setMobileOpen(true)} />
         <MainContent>{children}</MainContent>
       </div>

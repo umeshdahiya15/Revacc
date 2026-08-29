@@ -4,6 +4,7 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
+  color-scheme: light;
   --radius: 0.75rem;
 
   --background: #f8fafc;
@@ -57,6 +58,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --background: #0f172a;
   --foreground: #f1f5f9;
   --card: #1e293b;
@@ -137,8 +139,13 @@
   * {
     @apply border-border;
   }
+  html,
+  body {
+    min-height: 100%;
+  }
   body {
     @apply bg-background text-foreground;
+    overflow-x: hidden;
   }
 }
 
@@ -165,9 +172,13 @@
   width: 8px;
 }
 .mev-scroll::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: var(--input);
   border-radius: 4px;
 }
 .mev-scroll::-webkit-scrollbar-track {
   background: transparent;
+}
+
+.dark .mev-scroll {
+  scrollbar-color: var(--input) transparent;
 }

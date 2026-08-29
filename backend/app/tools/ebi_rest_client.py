@@ -20,9 +20,14 @@ The ``result`` payload Phobius returns is an EMBOSS feature table:
 from __future__ import annotations
 
 import asyncio
+import os
 import random
 import re
+import shutil
+import subprocess
+import tempfile
 from dataclasses import dataclass
+from pathlib import Path
 
 import httpx
 
@@ -40,6 +45,207 @@ _SERVER_ERROR_BACKOFF = (5.0, 10.0, 20.0, 40.0, 60.0)
 _DEFAULT_EMAIL = "mev-pipeline@example.com"
 
 _FT_RE = re.compile(r"^\s*FT\s+(SIGNAL|TRANSMEM|DOMAIN)\s+(\d+)\s+(\d+)(?:\s+(.*))?$")
+
+# PSORTb emits these names (with minor spelling/case differences between
+# releases) in its terse output.  Keep the parser permissive, but classify
+# only documented localization labels; unknown output is never a surface call.
+_PSORTB_SURFACE_LABELS = {
+    "cellwall",
+    "cellwallextracellular",
+    "cellwallmembrane",
+    "cellwallanchored",
+    "wallanchored",
+    "extracellular",
+    "secreted",
+    "cytoplasmicmembrane",
+    "innerchromosomalregion",
+    "outermembrane",
+    "lipoprotein",
+}
+
+
+def _psortb_token(value: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(value).lower())
+
+
+def classify_psortb(localization: str) -> str:
+    """Return a stable PSORTb localization category.
+
+    PSORTb 3/6 uses labels such as ``OuterMembrane``, ``Lipoprotein`` and
+    ``CellWall``; some builds insert spaces or hyphens.  The canonical value
+    is intentionally separate from the raw label retained in parsed output.
+    """
+    token = _psortb_token(localization)
+    if token == "outermembrane":
+        return "outer_membrane"
+    if token == "lipoprotein":
+        return "lipoprotein"
+    if token in {"cellwallanchored", "wallanchored"}:
+        return "cell_wall_anchored"
+    if token in {"cellwall", "cellwallextracellular", "cellwallmembrane"}:
+        return "cell_wall"
+    if token == "extracellular":
+        return "extracellular"
+    if token == "secreted":
+        return "secreted"
+    if token == "cytoplasmicmembrane":
+        return "cytoplasmic_membrane"
+    if token in {"cytoplasmic", "cytosol", "cytoplasm"}:
+        return "intracellular"
+    return "unknown"
+
+
+def is_psortb_surface(localization: str) -> bool:
+    """Whether a PSORTb localization is surface-accessible for this pipeline."""
+    return classify_psortb(localization) in {
+        "outer_membrane",
+        "lipoprotein",
+        "cell_wall_anchored",
+        "cell_wall",
+        "extracellular",
+        "secreted",
+        "cytoplasmic_membrane",
+    }
+
+
+def parse_psortb_out(raw: str) -> dict[str, dict]:
+    """Parse PSORTb terse output into ``sequence_id -> localization`` records.
+
+    Supported forms include the tabular ``SeqID<TAB>Localization<TAB>Score``
+    output and whitespace-delimited output where labels contain spaces. Header,
+    warning, and unparseable lines are ignored. No localization is inferred
+    from a missing row: callers receive ``Unknown`` for that sequence.
+    """
+    parsed: dict[str, dict] = {}
+    if not raw:
+        return parsed
+
+    known_labels = (
+        "Cell-wall-anchored", "Cell Wall Anchored", "Wall anchored",
+        "CellWall/Extracellular", "CellWall/Membrane",
+        "CytoplasmicMembrane", "Outer membrane", "OuterMembrane",
+        "Lipoprotein", "Extracellular", "CellWall", "Secreted",
+        "Cytoplasmic",
+    )
+    label_re = re.compile(
+        r"(?<![A-Za-z])(" + "|".join(re.escape(label) for label in known_labels) + r")(?![A-Za-z])",
+        re.IGNORECASE,
+    )
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or line.lower().startswith(("seqid", "sequence")):
+            continue
+        fields = line.split("\t")
+        if len(fields) == 1:
+            whitespace_fields = re.split(r"\s+", line)
+            if len(whitespace_fields) < 2:
+                continue
+            seq_id = whitespace_fields[0].strip()
+            remainder = " ".join(whitespace_fields[1:])
+        else:
+            seq_id = fields[0].strip() if fields else ""
+            remainder = " ".join(field.strip() for field in fields[1:] if field.strip())
+        if not seq_id:
+            continue
+        match = label_re.search(remainder)
+        if match:
+            localization = match.group(1)
+        else:
+            tokens = re.split(r"\s+", remainder)
+            if not tokens:
+                continue
+            localization = tokens[0]
+        score = 0.0
+        for token in reversed(re.findall(r"[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?", remainder)):
+            try:
+                score = float(token)
+                break
+            except ValueError:
+                continue
+        parsed[seq_id] = {
+            "localization": localization,
+            "category": classify_psortb(localization),
+            "score": score,
+        }
+    return parsed
+
+
+# Descriptive alias used by callers that refer to the command-line output.
+parse_psortb_output = parse_psortb_out
+
+
+class PSORTbClientError(RuntimeError):
+    """Raised when a configured PSORTb executable cannot produce results."""
+
+
+def find_psortb_binary(configured: str | None = None) -> str | None:
+    """Find a local PSORTb executable without guessing scientific results.
+
+    ``PSORTB_BIN`` (or an explicit argument) takes precedence, followed by
+    conventional executable names. A configured path must exist and be
+    executable; a missing configuration is treated as normal unavailability.
+    """
+    configured = configured or os.environ.get("PSORTB_BIN") or os.environ.get("PSORTB_PATH")
+    candidates = [configured] if configured else ["psortb", "psortb.pl", "psort"]
+    for candidate in candidates:
+        if not candidate:
+            continue
+        resolved = shutil.which(candidate)
+        if resolved:
+            return resolved
+        path = Path(candidate).expanduser()
+        if path.is_file() and os.access(path, os.X_OK):
+            return str(path)
+    return None
+
+
+class PSORTbClient:
+    """Run a locally installed PSORTb command-line binary on FASTA input."""
+
+    def __init__(self, binary: str | None = None, *, timeout: float = 7200.0) -> None:
+        self.binary = binary or find_psortb_binary()
+        self.timeout = timeout
+        if not self.binary:
+            raise PSORTbClientError("No PSORTb executable was found on PATH or in PSORTB_BIN.")
+
+    def localize_sync(self, sequences: list[str], *, gram: str = "positive") -> list[dict]:
+        if not self.binary:
+            raise PSORTbClientError("No PSORTb executable is configured.")
+        gram_flag = {"positive": "-p", "negative": "-n", "archaea": "-a"}.get(gram, "-p")
+        with tempfile.TemporaryDirectory(prefix="mev-psortb-") as work_dir:
+            fasta = Path(work_dir) / "input.fasta"
+            with fasta.open("w", encoding="utf-8") as handle:
+                for index, sequence in enumerate(sequences):
+                    handle.write(f">seq_{index}\n{''.join(sequence.split()).upper()}\n")
+            command = [self.binary, "-i", str(fasta), gram_flag, "--output", "terse"]
+            try:
+                completed = subprocess.run(
+                    command, capture_output=True, text=True, timeout=self.timeout, check=False
+                )
+            except (OSError, subprocess.SubprocessError) as exc:
+                raise PSORTbClientError(f"PSORTb execution failed: {exc}") from exc
+            if completed.returncode != 0:
+                detail = (completed.stderr or completed.stdout or "unknown error").strip()
+                raise PSORTbClientError(f"PSORTb exited with code {completed.returncode}: {detail[:300]}")
+            parsed = parse_psortb_out(completed.stdout)
+        return [
+            {
+                "localization": (parsed.get(f"seq_{index}") or {}).get("localization", "Unknown"),
+                "category": (parsed.get(f"seq_{index}") or {}).get("category", "unknown"),
+                "score": (parsed.get(f"seq_{index}") or {}).get("score", 0.0),
+                "cached": False,
+            }
+            for index, _sequence in enumerate(sequences)
+        ]
+
+    async def localize(self, sequences: list[str], *, gram: str = "positive") -> list[dict]:
+        return await asyncio.get_running_loop().run_in_executor(
+            None, lambda: self.localize_sync(sequences, gram=gram)
+        )
+
+
+# Alternate capitalization kept for integrations that spell the tool in all caps.
+PSORTBClient = PSORTbClient
 
 
 class EBIRestClientError(RuntimeError):

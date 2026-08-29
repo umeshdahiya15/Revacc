@@ -6,6 +6,19 @@ set -euo pipefail
 
 BACKEND_PORT=8000
 FRONTEND_PORT=3000
+PSORTB_IMAGE="brinkmanlab/psortb_commandline:1.0.2"
+
+# Real PSORTb (Phase 2-2) runs inside Docker (Colima). Ensure the VM is up and
+# the image is present, otherwise the localization step will pause the run.
+echo "==> Ensuring Docker (Colima) is running for real PSORTb …"
+if ! colima status >/dev/null 2>&1; then
+  colima start --vm-type vz --cpu 4 --memory 6 --disk 40 || \
+    echo "!! Colima failed to start — PSORTb (Phase 2-2) will be unavailable."
+fi
+if command -v docker >/dev/null 2>&1; then
+  docker image inspect "$PSORTB_IMAGE" >/dev/null 2>&1 || docker pull "$PSORTB_IMAGE" || \
+    echo "!! Could not pull $PSORTB_IMAGE — PSORTb will be unavailable."
+fi
 
 cleanup() { pkill -f "ngrok http" 2>/dev/null; pkill -f "uvicorn.*$BACKEND_PORT" 2>/dev/null; pkill -f "next dev" 2>/dev/null; }
 trap cleanup EXIT

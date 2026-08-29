@@ -13,7 +13,7 @@ import { StepProgressIndicator } from "@/components/pipeline/StepProgressIndicat
 import { StepResultPanel } from "@/components/pipeline/StepResultPanel";
 import { EpitopeTable } from "@/components/results/EpitopeTable";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { Phase, Step } from "@/types";
+import type { Job, Phase, Step } from "@/types";
 
 const STEP_ICON_STYLE: Record<Step["status"], string> = {
   pending: "bg-muted text-slate-400",
@@ -115,7 +115,7 @@ export default function PhaseDetailPage() {
       {phaseNo === 8 && <CoverageBlock phase={phase} />}
       {phaseNo === 9 && <ConstructBlock phase={phase} />}
       {phaseNo === 10 && <ValidationBlock phase={phase} />}
-      {phaseNo === 11 && <StructureBlock phase={phase} />}
+      {phaseNo === 11 && <StructureBlock phase={phase} job={job} />}
       {phaseNo === 14 && <ImmuneSimBlock phase={phase} />}
 
       {/* Navigation */}
@@ -381,7 +381,8 @@ function ValidationBlock({ phase }: { phase: Phase }) {
 }
 
 /** Phase 11 — MEV 3D structure validation (Ramachandran / ERRAT / ProSA). */
-function StructureBlock({ phase }: { phase: Phase }) {
+function StructureBlock({ phase, job }: { phase: Phase; job: Job }) {
+  const step112 = phase.steps.find((s) => s.id === "11-2");
   const rama = stepResult(phase, "11-3");
   const errat = stepResult(phase, "11-4");
   const prosa = stepResult(phase, "11-5");
@@ -393,22 +394,35 @@ function StructureBlock({ phase }: { phase: Phase }) {
   const erratScore = num(errat?.errat_score);
   const prosaZ = num(prosa?.prosa_zscore);
 
-  if (favored == null && erratScore == null && prosaZ == null) return null;
-
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base">MEV 3D structure validation</CardTitle>
-      </CardHeader>
-      <CardContent className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-        {favored != null && <Metric label="Ramachandran favored" value={favored.toFixed(1)} suffix="%" ok={favored >= 90} />}
-        {allowed != null && <Metric label="Allowed" value={allowed.toFixed(1)} suffix="%" />}
-        {outliers != null && <Metric label="Outliers" value={outliers.toFixed(1)} suffix="%" ok={outliers < 5} />}
-        {residues != null && <Metric label="Residues" value={String(residues)} />}
-        {erratScore != null && <Metric label="ERRAT quality" value={erratScore.toFixed(1)} ok={erratScore >= 80} />}
-        {prosaZ != null && <Metric label="ProSA Z-score" value={prosaZ.toFixed(2)} />}
-      </CardContent>
-    </Card>
+    <>
+      <Card className={cn("border-blue-200 bg-blue-50/40", step112?.status === "paused" && "border-amber-200 bg-amber-50/40")}>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Automatic MEV structure analysis</CardTitle>
+        </CardHeader>
+        <CardContent className="text-xs text-muted-foreground">
+          {step112?.status === "success"
+            ? "The backend fetched and validated the structure automatically. Step 11-3 and subsequent analyses start from that validated result."
+            : "The backend automatically submits the assembled MEV to the configured structure provider. No frontend upload or manual input is required."}
+        </CardContent>
+      </Card>
+
+      {(favored != null || erratScore != null || prosaZ != null) && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">MEV 3D structure validation</CardTitle>
+          </CardHeader>
+          <CardContent className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+            {favored != null && <Metric label="Ramachandran favored" value={favored.toFixed(1)} suffix="%" ok={favored >= 90} />}
+            {allowed != null && <Metric label="Allowed" value={allowed.toFixed(1)} suffix="%" />}
+            {outliers != null && <Metric label="Outliers" value={outliers.toFixed(1)} suffix="%" ok={outliers < 5} />}
+            {residues != null && <Metric label="Residues" value={String(residues)} />}
+            {erratScore != null && <Metric label="ERRAT quality" value={erratScore.toFixed(1)} ok={erratScore >= 80} />}
+            {prosaZ != null && <Metric label="ProSA Z-score" value={prosaZ.toFixed(2)} />}
+          </CardContent>
+        </Card>
+      )}
+    </>
   );
 }
 

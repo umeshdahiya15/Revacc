@@ -23,14 +23,12 @@ import httpx
 
 BLAST_URL = "https://blast.ncbi.nlm.nih.gov/Blast.cgi"
 USER_AGENT = "mev-pipeline/0.1 (multi-epitope vaccine pipeline; contact@example.org)"
-# A key/email raises your RID priority and is strongly recommended for
-# sustained use. Set via environmental variables; the key below is a working
-# user key used as a fallback so remote searches do not sit in the anonymous
-# low-priority queue (NCBI_API_KEY overrides it).
+# A key/email raises RID priority and is recommended for sustained use. Both
+# are supplied through environment variables; no credential is bundled here.
 NCBI_TOOL = os.environ.get("NCBI_TOOL", "mev-pipeline")
 NCBI_EMAIL = os.environ.get("NCBI_EMAIL", "mev-pipeline@example.com")
 # NCBI rejects the key if it carries the "API-" display prefix, so strip it.
-NCBI_API_KEY = os.environ.get("NCBI_API_KEY", "API-196de9f5b6b4de7fae94bfdfeb1cb4132f0a")
+NCBI_API_KEY = os.environ.get("NCBI_API_KEY", "")
 if NCBI_API_KEY.startswith("API-"):
     NCBI_API_KEY = NCBI_API_KEY[4:]
 REQUEST_TIMEOUT = 90.0

@@ -61,3 +61,17 @@ backend/*.sqlite
 
 # BLAST databases (large binary files)
 backend/databases/
+
+# Testing caches
+.hypothesis/
+backend/.hypothesis/
+backend/.iedb_tools/
+.iedb_tools/
+backend/pytest.ini
+
+# Python virtual environments
+.venv-esmfold/
+
+# IDE / tool configs
+.vscode/
+.kiro/

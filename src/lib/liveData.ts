@@ -50,6 +50,15 @@ export function provenanceLabel(provenance: Provenance | null): string {
     provenance.method,
     provenance.source,
     provenance.database,
+    provenance.proteomeId ? `proteome ${provenance.proteomeId}` : undefined,
+    provenance.query ? `query ${provenance.query}` : undefined,
+    provenance.referenceProteomeProteinCount != null
+      ? `metadata ${provenance.referenceProteomeProteinCount}`
+      : undefined,
+    provenance.returnedRecordCount != null
+      ? `returned ${provenance.returnedRecordCount}`
+      : undefined,
+    provenance.cacheState ? `cache ${provenance.cacheState}` : undefined,
     provenance.release ? `release ${provenance.release}` : undefined,
   ].filter(Boolean).join(" · ");
 }

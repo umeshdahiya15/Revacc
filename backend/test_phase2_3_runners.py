@@ -12,6 +12,7 @@ import asyncio
 import os
 import sys
 import unittest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
@@ -210,10 +211,11 @@ class TestGracefulPause(unittest.TestCase):
         self.assertIn("test reason", s)
         self.assertIn("test workaround", s)
 
-    def test_tool_unavailable_error_frozen(self):
+    def test_tool_unavailable_error_is_assignable(self):
+        """Exception instances remain assignable on Python 3.13."""
         err = ToolUnavailableError(tool_name="T", reason="r", workaround="w")
-        with self.assertRaises(AttributeError):
-            err.tool_name = "X"
+        err.tool_name = "X"
+        self.assertEqual(err.tool_name, "X")
 
 
 # ======================================================================
@@ -231,15 +233,15 @@ class TestRunner2_4(unittest.TestCase):
         return job
 
     def _make_session(self):
+        candidates = [
+            {"index": 0, "uniprotId": "P0A0A0", "name": "ProtA", "sequence": "M" * 100 + "A"},
+            {"index": 1, "uniprotId": "P0B0B0", "name": "ProtB", "sequence": "M" * 100 + "C"},
+            {"index": 2, "uniprotId": "P0C0C0", "name": "ProtC", "sequence": "M" * 100 + "G"},
+        ]
         return {
-            "essential": {
-                "candidates": [
-                    {"index": 0, "uniprotId": "P0A0A0", "name": "ProtA", "sequence": "M" * 100 + "A"},
-                    {"index": 1, "uniprotId": "P0B0B0", "name": "ProtB", "sequence": "M" * 100 + "C"},
-                    {"index": 2, "uniprotId": "P0C0C0", "name": "ProtC", "sequence": "M" * 100 + "G"},
-                ],
-                "count": 3,
-            }
+            "essential": {"candidates": candidates, "count": len(candidates)},
+            # Step 2-4 refines the surface set produced by real PSORTb step 2-2.
+            "surface_exposed": {"candidates": list(candidates), "count": len(candidates)},
         }
 
     def test_filters_intracellular(self):
@@ -309,7 +311,8 @@ class TestRunner2_4(unittest.TestCase):
                      patch("app.tools.runner_additions._save_phobius_cache"):
                     result = await run_2_4(session, job, step)
 
-            self.assertEqual(result["surface_exposed_count"], 3)
+            self.assertEqual(result["surface_exposed_count"], 0)
+            self.assertTrue(all(item["classification"] == "unknown" for item in result["classifications"]))
 
         asyncio.run(_test())
 
@@ -352,8 +355,8 @@ class TestLocalCandidateRunners(unittest.TestCase):
         session, job, step = self._make()
         result = asyncio.run(run_2_2(session, job, step))
         self.assertEqual(result["total_analyzed"], 0)
-        self.assertEqual(result["localized_count"], 0)
-        self.assertEqual(result["method"], "psortb_local")
+        self.assertEqual(result["surface_exposed_count"], 0)
+        self.assertEqual(result["method"], "psortb_6.0_local")
 
     def test_run_2_3_local_empty(self):
         from app.tools.runner_additions import run_2_3
@@ -361,7 +364,7 @@ class TestLocalCandidateRunners(unittest.TestCase):
         result = asyncio.run(run_2_3(session, job, step))
         self.assertEqual(result["total_analyzed"], 0)
         self.assertEqual(result["transmembrane_count"], 0)
-        self.assertEqual(result["method"], "tmhmm_local")
+        self.assertEqual(result["method"], "tmh_local_informational")
 
     def test_run_3_1_local_empty(self):
         from app.tools.runner_additions import run_3_1
@@ -578,7 +581,7 @@ class TestRunnerRegistration(unittest.TestCase):
         async def _run():
             result = await runner_mod.run_runner(job, step, timeout=runner_mod.runner_timeout("2-2"))
             self.assertEqual(result["total_analyzed"], 0)
-            self.assertEqual(result["method"], "psortb_local")
+            self.assertEqual(result["method"], "psortb_6.0_local")
 
         asyncio.run(_run())
 
@@ -603,7 +606,7 @@ class TestPhase4_11LocalRunners(unittest.TestCase):
 
         asyncio.run(_test())
 
-    def test_errat_local_empty(self):
+    def test_coordinate_analysis_pauses_without_real_coordinates(self):
         import asyncio
         from app.tools.runner_additions import run_11_4
 
@@ -611,8 +614,10 @@ class TestPhase4_11LocalRunners(unittest.TestCase):
             session = self._make_session()
             job = MagicMock(id="test")
             step = MagicMock(id="4-3", status="pending")
-            result = await run_11_4(session, job, step)
-            self.assertEqual(result["method"], "errat_local")
+            with self.assertRaises(ToolUnavailableError) as ctx:
+                await run_11_4(session, job, step)
+            self.assertEqual(ctx.exception.tool_name, "Local coordinate quality analysis")
+            self.assertIn("no usable validated coordinate data", ctx.exception.reason)
 
         asyncio.run(_test())
 
@@ -624,8 +629,9 @@ class TestPhase4_11LocalRunners(unittest.TestCase):
             session = self._make_session()
             job = MagicMock(id="test")
             step = MagicMock(id="11-5", status="pending")
-            result = await run_11_5(session, job, step)
-            self.assertEqual(result["method"], "prosa_local")
+            with self.assertRaises(ToolUnavailableError) as ctx:
+                await run_11_5(session, job, step)
+            self.assertIn("sequence-inferred contacts are not used", ctx.exception.reason)
 
         asyncio.run(_test())
 
@@ -666,8 +672,10 @@ class TestPhase4_11LocalRunners(unittest.TestCase):
             session = self._make_session()
             job = MagicMock(id="test")
             step = MagicMock(id="14-1", status="pending")
-            result = await run_14_1(session, job, step)
-            self.assertEqual(result["method"], "c_immisim_ode_local")
+            with self.assertRaises(ToolUnavailableError) as ctx:
+                await run_14_1(session, job, step)
+            self.assertIn("C-ImmSim", str(ctx.exception))
+            self.assertIn("local ODE model is not used", str(ctx.exception))
 
         asyncio.run(_test())
 
@@ -713,6 +721,28 @@ class TestPhase4_11LocalRunners(unittest.TestCase):
                     result = await runner(session, job, step)
                     self.assertIsInstance(result, dict)
                     self.assertIn("method", result)
+
+        asyncio.run(_test())
+
+    def test_bcell_window_is_passed_to_local_predictor(self):
+        from app.tools.runner_additions import run_7_1
+
+        async def _test():
+            session = {
+                "vaccine_targets": {
+                    "candidates": [{"uniprotId": "P0A", "name": "Target", "sequence": "A" * 32}]
+                }
+            }
+            job = MagicMock(id="test", config=SimpleNamespace(bCellWindow=16))
+            step = MagicMock(id="7-1", status="pending")
+            prediction = {
+                "epitope_fragments": [],
+                "method": "bepipred_local",
+            }
+            with patch("app.tools.runner_additions.bcell_local.predict_bepipred_epitope", return_value=prediction) as predict:
+                result = await run_7_1(session, job, step)
+            self.assertEqual(result["scored"], 1)
+            predict.assert_called_once_with("A" * 32, window_size=16)
 
         asyncio.run(_test())
 
@@ -765,8 +795,23 @@ class TestPhase4_1ProtParam(unittest.TestCase):
             step = MagicMock(id="4-1", status="pending")
             result = await run_4_1(session, job, step)
             self.assertEqual(result["proteins_analyzed"], 2)
+            self.assertEqual(result["method"], "protparam_local_biopython")
             self.assertEqual(len(session["protein_properties"]), 2)
             self.assertIn("molecular_weight", session["protein_properties"][0])
+
+        asyncio.run(_test())
+
+    def test_novel_mev_structure_pauses_without_external_coordinates(self):
+        from app.tools.runner_additions import run_11_2
+
+        async def _test():
+            session = {"mev_construct": {"sequence": "ACDEFGHIKLMNPQRSTVWY"}}
+            job = MagicMock(id="test")
+            step = MagicMock(id="11-2", status="pending")
+            with self.assertRaises(ToolUnavailableError) as ctx:
+                await run_11_2(session, job, step)
+            self.assertIn("novel MEV construct", str(ctx.exception))
+            self.assertIn("validated external structure", str(ctx.exception))
 
         asyncio.run(_test())
 
@@ -804,11 +849,83 @@ class TestPhase9Assembly(unittest.TestCase):
 
         async def _test():
             session = {}
-            job = MagicMock(id="test")
+            job = MagicMock(id="test", config=SimpleNamespace(adjuvant="ctxb"))
             step = MagicMock(id="9-1", status="pending")
             result = await run_9_1_adj(session, job, step)
-            self.assertEqual(result["method"], "adjuvant_local")
-            self.assertIn("recommended", result)
+            self.assertEqual(result["method"], "user-configured adjuvant")
+            self.assertEqual(result["source"], "user-provided")
+            self.assertEqual(result["recommended"], "ctxb")
+
+        asyncio.run(_test())
+
+    def test_mev_optional_sequences_require_and_preserve_provenance(self):
+        from app.tools.runner_additions import _assemble_mev_construct
+
+        epitopes = [{
+            "type": "CTL",
+            "sequence": "ACDEFGHIK",
+            "sourceProtein": "P0A",
+            "percentileRank": 1.0,
+        }]
+        construct = _assemble_mev_construct(
+            epitopes,
+            "EAAAK",
+            "GPGPG",
+            "KK",
+            use_optional_sequences=True,
+            adjuvant_sequence="MKTLL",
+            adjuvant_source="UniProt:P12345",
+            signal_peptide_sequence="MKKLL",
+            signal_peptide_source="UniProt:P54321",
+        )
+        self.assertTrue(construct["sequence"].startswith("MKKLLMKTLL"))
+        self.assertEqual(construct["adjuvantSource"], "UniProt:P12345")
+        self.assertEqual(construct["signalPeptideSource"], "UniProt:P54321")
+
+        # Optional payload cannot change the exact legacy result unless the
+        # explicit opt-in is enabled.
+        legacy = _assemble_mev_construct(
+            epitopes,
+            "EAAAK",
+            "GPGPG",
+            "KK",
+            adjuvant_sequence="MKTLL",
+            signal_peptide_sequence="MKKLL",
+        )
+        self.assertFalse(legacy["sequence"].startswith("MKKLLMKTLL"))
+        self.assertIsNone(legacy["signalPeptideSource"])
+
+        with self.assertRaises(ValueError):
+            _assemble_mev_construct(
+                epitopes,
+                "EAAAK",
+                "GPGPG",
+                "KK",
+                use_optional_sequences=True,
+                adjuvant_sequence="MKTLL",
+            )
+
+    def test_mev_enabled_without_real_optional_sequence_is_unavailable(self):
+        import asyncio
+        from app.tools.graceful_pause import ToolUnavailableError
+        from app.tools.runner_additions import run_9_1
+
+        async def _test():
+            session = {
+                "conserved_epitopes": [{
+                    "type": "CTL",
+                    "sequence": "ACDEFGHIK",
+                    "selected": True,
+                }],
+            }
+            job = MagicMock(
+                id="test",
+                config=SimpleNamespace(enableMevEnhancements=True),
+            )
+            step = MagicMock(id="9-2", status="pending")
+            with self.assertRaises(ToolUnavailableError) as ctx:
+                await run_9_1(session, job, step)
+            self.assertIn("no real signal-peptide or full-adjuvant", str(ctx.exception))
 
         asyncio.run(_test())
 
@@ -824,6 +941,34 @@ class TestPhase9Assembly(unittest.TestCase):
             self.assertEqual(result["mev_length"], 0)
 
         asyncio.run(_test())
+
+
+class TestRunComparisonEndpoint(unittest.TestCase):
+    def test_compare_jobs_returns_funnel_mev_and_provenance(self):
+        from app.models import JobCreate
+        from app.repo import repo
+        from app.routes import compare_jobs
+
+        repo._jobs.clear()
+        repo._events.clear()
+        first = repo.create(JobCreate(name="first"))
+        second = repo.create(JobCreate(name="second"))
+        for job, length in ((first, 100), (second, 120)):
+            job.status = "completed"
+            job.funnel = [{"key": "proteins", "count": length}]
+            mev_step = next(step for phase in job.phases for step in phase.steps if step.id == "9-2")
+            mev_step.result = {
+                "mev_length": length,
+                "ctl_epitopes": 1,
+                "provenance": {"status": "local-analysis"},
+            }
+            repo.upsert(job)
+
+        compared = compare_jobs(f"{first.id},{second.id}")
+        self.assertEqual([item["name"] for item in compared["jobs"]], ["first", "second"])
+        self.assertEqual(compared["jobs"][0]["funnel"][0]["count"], 100)
+        self.assertEqual(compared["jobs"][1]["mevMetrics"]["mev_length"], 120)
+        self.assertEqual(compared["jobs"][0]["provenance"]["status"], "local-analysis")
 
 
 class TestPhase13Runners(unittest.TestCase):

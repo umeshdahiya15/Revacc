@@ -9,8 +9,8 @@ and turned into a local BLAST database with `makeblastdb`, then searched with
 clear error so the caller can pause gracefully rather than fabricate results.
 
 Classification rule (mirrors the pipeline's conservative thresholds):
-a candidate is a virulence factor when its best VFDB hit covers >= 30%
-identity at e-value <= 1e-5.
+a candidate is a virulence factor when its best VFDB hit has >= 30%
+identity, e-value <= 1e-4, and a strict bit score > 100.
 """
 from __future__ import annotations
 
@@ -27,7 +27,8 @@ VFDB_MIRROR = "https://zenodo.org/records/7511135/files/VFDB_setA_pro.fas.gz"
 VFDB_CACHE_DIR = os.environ.get("MEV_VFDB_CACHE", os.path.join(tempfile.gettempdir(), "mev-vfdb"))
 VFDB_FASTA_NAME = "VFDB_setA_pro.fas"
 VFDB_IDENTITY_THRESHOLD = 30.0
-VFDB_EVALUE_THRESHOLD = 1e-5
+VFDB_EVALUE_THRESHOLD = 1e-4
+VFDB_BITSCORE_THRESHOLD = 100.0
 _HTTP_TIMEOUT = 90.0
 
 
@@ -39,6 +40,7 @@ class VFDBHit:
     identity: float
     evalue: float
     align_length: int
+    bitscore: float = 0.0
 
 
 @dataclass
@@ -111,7 +113,7 @@ def _run_blastp(query_fasta: str, db_name: str) -> list[VFDBHit]:
             "blastp",
             "-query", query_fasta,
             "-db", db_name,
-            "-outfmt", "6",  # tabular: qseqid sseqid pident length evalue bitscore salltitles
+            "-outfmt", "6 qseqid sseqid pident length evalue bitscore stitle",
             "-evalue", str(VFDB_EVALUE_THRESHOLD),
             "-max_target_seqs", "5",
             "-num_threads", str(min(4, os.cpu_count() or 1)),
@@ -132,6 +134,7 @@ def _run_blastp(query_fasta: str, db_name: str) -> list[VFDBHit]:
                 identity=float(parts[2]),
                 evalue=float(parts[4]),
                 align_length=int(parts[3]),
+                bitscore=float(parts[5]),
             )
         )
     return hits
@@ -185,7 +188,12 @@ def blast_vfdb(
         qhits = by_query.get(qid, [])
         best = min(qhits, key=lambda h: h.evalue) if qhits else None
         best_identity = best.identity if best else 0.0
-        is_vf = best is not None and best.identity >= identity_threshold and best.evalue <= evalue_threshold
+        is_vf = (
+            best is not None
+            and best.identity >= identity_threshold
+            and best.evalue <= evalue_threshold
+            and best.bitscore > VFDB_BITSCORE_THRESHOLD
+        )
         results.append(
             VFDBResult(
                 query_id=qid,

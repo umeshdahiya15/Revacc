@@ -1,23 +1,35 @@
 FROM python:3.13-slim
 
-# Install system dependencies for bioinformatics tools
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    libxml2-dev \
-    libxslt1-dev \
-    zlib1g-dev \
+# Runtime libraries used by Biopython and XML-based tool clients.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
+        libxml2-dev \
+        libxslt1-dev \
+        zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
 
 WORKDIR /app
 
-# Install Python dependencies
-COPY backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Install into the image's system interpreter; never depend on a local .venv.
+COPY backend/requirements.txt /app/requirements.txt
+RUN python -m pip install --no-cache-dir -r /app/requirements.txt
 
-# Copy application code
-COPY backend/app ./app
-COPY backend/test_*.py ./
+# Only the backend application is needed at runtime. Tests, frontend assets,
+# local datasets, and development environments are excluded by .dockerignore.
+COPY backend/app /app/app
+
+# Keep the API process unprivileged in Railway.
+RUN addgroup --system app && adduser --system --ingroup app app \
+    && chown -R app:app /app
+USER app
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Railway supplies PORT at runtime. The fallback keeps local `docker run`
+# behavior convenient without changing the production (no --reload) command.
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

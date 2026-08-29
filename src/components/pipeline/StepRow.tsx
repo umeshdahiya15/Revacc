@@ -3,14 +3,17 @@
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { cn, formatDuration } from "@/lib/utils";
+import { officialLifecycleFromResult } from "@/lib/officialLifecycle";
 import { StepProgressIndicator } from "@/components/pipeline/StepProgressIndicator";
 import { ErrorBanner } from "@/components/pipeline/ErrorBanner";
+import { OfficialLifecycleStatusPanel } from "@/components/pipeline/OfficialLifecycleStatusPanel";
 import { StepResultPanel } from "@/components/pipeline/StepResultPanel";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Step } from "@/types";
 
 export function StepRow({
   step,
+  jobId,
   onRetry,
   onSkip,
   onStop,
@@ -18,6 +21,7 @@ export function StepRow({
   showTool = true,
 }: {
   step: Step;
+  jobId: string;
   onRetry?: (step: Step) => void;
   onSkip?: (step: Step) => void;
   onStop?: () => void;
@@ -28,6 +32,7 @@ export function StepRow({
   const failed = step.status === "failed";
   const paused = step.status === "paused";
   const hasContent = step.result !== undefined || step.error !== undefined;
+  const officialLifecycle = officialLifecycleFromResult(step.result);
 
   return (
     <div className="group flex flex-col gap-1">
@@ -101,7 +106,7 @@ export function StepRow({
         )}
       </div>
 
-      {((failed || paused) && showError) && step.error && (
+      {((failed || paused) && showError && !officialLifecycle) && step.error && (
         <ErrorBanner
           error={step.error}
           stepLabel={`Step ${step.phase}.${step.number} · ${step.name}`}
@@ -110,6 +115,8 @@ export function StepRow({
           onStop={onStop}
         />
       )}
+
+      {officialLifecycle && <OfficialLifecycleStatusPanel lifecycle={officialLifecycle} />}
 
       {showRaw && hasContent && <StepResultPanel step={step} />}
     </div>

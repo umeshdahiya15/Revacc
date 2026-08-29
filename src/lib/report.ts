@@ -15,6 +15,7 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { downloadFile, toCsv, formatDuration } from "@/lib/utils";
 import { asRecord, isUnavailableStep, stepProvenance } from "@/lib/liveData";
+import { publicJobForPresentation } from "@/lib/officialLifecycle";
 import type { Job, Step } from "@/types";
 
 export type ExportFormat =
@@ -97,6 +98,7 @@ function titleize(s: string): string {
 // ---------------------------------------------------------------------------
 
 export function generateReportPdf(job: Job): void {
+  job = publicJobForPresentation(job);
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const W = doc.internal.pageSize.getWidth();
   const M = 14;
@@ -385,6 +387,7 @@ export function generateReportPdf(job: Job): void {
 // ---------------------------------------------------------------------------
 
 export function generateRawPdf(job: Job): void {
+  job = publicJobForPresentation(job);
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const W = doc.internal.pageSize.getWidth();
   const M = 12;
@@ -523,6 +526,7 @@ export function generateRawPdf(job: Job): void {
 // ---------------------------------------------------------------------------
 
 export function exportRawJson(job: Job): void {
+  job = publicJobForPresentation(job);
   downloadFile(
     JSON.stringify(job, null, 2),
     `${slug(job)}_raw.json`,
@@ -531,6 +535,7 @@ export function exportRawJson(job: Job): void {
 }
 
 export function exportZip(job: Job): void {
+  job = publicJobForPresentation(job);
   const eps = job.epitopes ?? [];
   const files: { name: string; content: string }[] = [
     {

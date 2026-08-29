@@ -50,6 +50,7 @@ class Epitope(BaseModel):
     percentileRank: Optional[float] = None
     windowLength: Optional[int] = None
     predictionMethod: Optional[str] = None
+    source: Optional[Literal["real", "cached-real", "local-analysis", "unavailable", "user-provided"]] = None
     selected: bool = True
 
 
@@ -85,6 +86,13 @@ class JobConfigModel(BaseModel):
     source: Literal["pathogen", "fasta"] = "pathogen"
     fastaFileName: Optional[str] = None
     adjuvant: str = "ctxb"
+    # Explicit opt-in for user-supplied signal peptide/full-adjuvant sequences.
+    # Disabled preserves the legacy CTxB construct and ignores optional fields.
+    enableMevEnhancements: bool = False
+    adjuvantSequence: Optional[str] = None
+    adjuvantSource: Optional[str] = None
+    signalPeptideSequence: Optional[str] = None
+    signalPeptideSource: Optional[str] = None
     cdHitThreshold: float = 0.8
     vaxijenThreshold: float = 0.5
     expressionHost: str = "ecoli"
@@ -94,14 +102,14 @@ class JobConfigModel(BaseModel):
     enableCoverage: bool = True
     hlaMhc1: list[str] = Field(default_factory=list)
     hlaMhc2: list[str] = Field(default_factory=list)
-    mhciPercentile: float = 0.5
+    mhciPercentile: float = 2.0
     mhciiPercentile: float = 2.0
     bCellWindow: int = 16
     coverageRegions: list[str] = Field(default_factory=list)
     # When enabled, steps with a registered tool runner execute the real tool
     # (Phase 1 UniProt + CD-HIT are implemented). Unregistered steps simulate.
     realTools: bool = True
-    reviewedOnly: bool = True
+    reviewedOnly: bool = False
 
 
 class Job(BaseModel):
@@ -126,18 +134,59 @@ class Job(BaseModel):
     epitopes: list[Epitope] = Field(default_factory=list)
 
 
+class MEVStructureInput(BaseModel):
+    """External model attachment for the assembled MEV sequence.
+
+    The runner, rather than the client, validates an attachment against the
+    exact assembled MEV sequence. Therefore coordinate uploads may omit
+    ``sequence``; URL-only submissions still need the submitted sequence and
+    explicit 100% identity/coverage validation. Coordinate text is transient
+    and is never part of a ``Job`` response.
+    """
+
+    sequence: Optional[str] = None
+    provider: str = "user-provided"
+    method: str = "external structure model"
+    source: Literal["user-provided", "real"] = "user-provided"
+    modelUrl: Optional[str] = None
+    modelFormat: Optional[Literal["pdb"]] = None
+    coordinateText: Optional[str] = Field(default=None, exclude=True)
+    # Backward-compatible upload spelling used by the original API client.
+    modelText: Optional[str] = Field(default=None, exclude=True)
+    attachmentId: Optional[str] = None
+    fileName: Optional[str] = None
+    contentType: Optional[str] = None
+    sequenceIdentity: Optional[float] = None
+    sequenceCoverage: Optional[float] = None
+    validationMethod: Optional[str] = None
+
+
+# Compatibility name for callers using the original structure-upload contract.
+StructureModelAttachment = MEVStructureInput
+
+
 class JobCreate(BaseModel):
     name: str = ""
     pathogenName: str = "Streptococcus agalactiae"
     strain: Optional[str] = "GBS 2603V/R"
-    taxonId: Optional[int] = 208435
+    taxonId: Optional[int] = None
+    source: Literal["pathogen", "fasta"] = "pathogen"
     fastaFileName: Optional[str] = None
+    # Transient upload payload. It is consumed into the run session and is
+    # excluded from serialized job/config responses.
+    fastaText: Optional[str] = Field(default=None, exclude=True)
     adjuvant: str = "ctxb"
+    # Optional sequence extensions are never activated implicitly by payload data.
+    enableMevEnhancements: bool = False
+    adjuvantSequence: Optional[str] = None
+    adjuvantSource: Optional[str] = None
+    signalPeptideSequence: Optional[str] = None
+    signalPeptideSource: Optional[str] = None
     expressionHost: str = "ecoli"
     expressionVector: str = "pet28a"
     hlaMhc1: list[str] = Field(default_factory=list)
     hlaMhc2: list[str] = Field(default_factory=list)
-    mhciPercentile: float = 0.5
+    mhciPercentile: float = 2.0
     mhciiPercentile: float = 2.0
     bCellWindow: int = 16
     cdHitThreshold: float = 0.8
@@ -149,7 +198,7 @@ class JobCreate(BaseModel):
     # Forwarded to JobConfigModel.realTools. Defaults on for jobs created via
     # POST /api/jobs; the seeded demo jobs set it off to stay offline-safe.
     realTools: bool = True
-    reviewedOnly: bool = True
+    reviewedOnly: bool = False
 
 
 class PipelineEvent(BaseModel):

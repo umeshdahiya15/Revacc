@@ -165,8 +165,8 @@ IEDB's shared cluster rate-limits bursts (returns HTTP 500/429). Key findings:
 ### 5.4 CD-HIT Pure-Python Performance
 CD-HIT is implemented in pure Python (no compiled binary). For2106 proteins it takes ~2s. For larger proteomes (>10,000) it would be slow. Word-size scaling is applied: word=7 for >1000 seqs, word=10 for >3000 seqs.
 
-### 5.5 AlphaFold Timeout
-Step 4-2 (3D Structure Prediction) uses AlphaFold DB REST API. It caps at30 candidates and has a 60s timeout. On slow connections it may TimeoutError. The pipeline pauses and can be resumed (skips the step).
+### 5.5 Structure-provider behavior
+Step 4-2 uses the real AlphaFold DB REST API by default (`MEV_STRUCTURE_PROVIDER=alphafold_db`) for individual target proteins. It caps lookups at 30 candidates and preserves the exact AlphaFold API, PDB, mmCIF, and BinaryCIF URLs in session provenance. A target without a usable real coordinate URL causes an explicit AlphaFold DB pause; no local or fabricated structure is emitted. Setting `MEV_STRUCTURE_PROVIDER=swissmodel` is an explicit opt-in only and currently pauses because this repository does not implement an official authenticated SWISS-MODEL request client. If that client is added, `SWISSMODEL_API_TOKEN` must come from Railway secrets, never source code or tests.
 
 ### 5.6 MEV Length Gap (336 aa vs Paper's 620 aa)
 The paper's MEV is620 aa because it includes:
@@ -217,7 +217,7 @@ npm run dev  # Port 3000
 
 ### Vercel Deployment
 - Root Directory: `./` (NOT `backend/`)
-- Set `NEXT_PUBLIC_API_URL=https://revacc-production.up.railway.app` (the `https://` scheme is required; do not use a bare hostname)
+- Set `NEXT_PUBLIC_API_URL=https://revacc-production-6342.up.railway.app` (the `https://` scheme is required; do not use a bare hostname)
 - Confirm Railway has `MEV_CORS_ORIGINS=https://revacc.vercel.app`
 - Rebuild/redeploy the frontend after changing this value so it is embedded in the browser bundle
 

@@ -6,6 +6,7 @@ import { downloadFile } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { asRecord, isUnavailableStep, provenanceLabel, resultProvenance } from "@/lib/liveData";
+import { officialLifecycleFromResult, redactOfficialLifecycleResult } from "@/lib/officialLifecycle";
 import type { Step } from "@/types";
 
 /**
@@ -71,14 +72,20 @@ export function StepResultPanel({ step }: { step: Step }) {
   const [open, setOpen] = useState(false);
   const result = step.result;
   const resultObj: Record<string, unknown> | undefined = isPlainObject(result) ? result : undefined;
+  const officialLifecycle = officialLifecycleFromResult(result);
+  const presentationResult = redactOfficialLifecycleResult(result);
   const unavailable = isUnavailableStep(step);
-  const cards = resultObj && !unavailable ? pickCards(resultObj) : [];
-  const pausedBanner = asPaused(step);
+  const cards = resultObj && !unavailable && !officialLifecycle ? pickCards(resultObj) : [];
+  const pausedBanner = officialLifecycle ? null : asPaused(step);
   const provenance = resultProvenance(result);
   const skipped = step.status === "skipped";
   const raw =
     JSON.stringify(
-      { status: step.status, result: result ?? null, error: step.error ?? null },
+      {
+        status: step.status,
+        result: presentationResult ?? null,
+        error: officialLifecycle ? undefined : step.error ?? null,
+      },
       null,
       2,
     ) ?? "";
@@ -99,7 +106,7 @@ export function StepResultPanel({ step }: { step: Step }) {
         </p>
       )}
 
-      {step.status === "failed" && step.error && (
+      {step.status === "failed" && step.error && !officialLifecycle && (
         <div className={`rounded-md border px-3 py-2 ${
           step.error.severity === "warning"
             ? "border-amber-200 bg-amber-50/60"
@@ -142,14 +149,14 @@ export function StepResultPanel({ step }: { step: Step }) {
         </div>
       )}
 
-      {provenance && (
+      {provenance && !officialLifecycle && (
         <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[10px] text-slate-600">
           <span className="font-semibold text-slate-700">Provenance:</span> {provenanceLabel(provenance)}
           {provenance.reason && <span> · {provenance.reason}</span>}
         </div>
       )}
 
-      {resultObj && <ResultMetadata result={resultObj} provenance={provenance} />}
+      {resultObj && !officialLifecycle && <ResultMetadata result={resultObj} provenance={provenance} />}
 
       {cards.length > 0 && (
         <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
@@ -219,6 +226,9 @@ function ResultMetadata({ result, provenance }: { result: Record<string, unknown
     ["algorithm", "Algorithm"],
     ["source", "Source"],
     ["sourceType", "Source type"],
+    ["proteomeId", "Proteome ID"],
+    ["referenceProteomeProteinCount", "Metadata protein count"],
+    ["returnedRecordCount", "Returned record count"],
     ["database", "Database"],
     ["reference", "Reference"],
     ["release", "Release"],
@@ -226,6 +236,7 @@ function ResultMetadata({ result, provenance }: { result: Record<string, unknown
     ["criteria", "Thresholds / criteria"],
     ["cacheStatus", "Cache status"],
     ["cacheType", "Cache type"],
+    ["cacheState", "Cache state"],
     ["window_size", "Window"],
     ["query", "Query"],
   ] as const;

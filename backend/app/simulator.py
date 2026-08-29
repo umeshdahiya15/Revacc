@@ -32,6 +32,60 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _result_provenance(result: dict, step: Step) -> dict:
+    """Attach a machine-readable provenance state to every tool result.
+
+    Results without an explicit real or local method are marked unavailable;
+    they are never silently treated as scientific output merely because a
+    runner returned a dictionary.
+    """
+    existing = result.get("provenance")
+    if isinstance(existing, dict):
+        # Preserve detailed tool provenance (URL, query, release, counts, and
+        # cache state). Older results omitted status and were being replaced by
+        # a generic object, which rendered fresh UniProt output as unknown.
+        status = existing.get("status") or existing.get("cacheType") or existing.get("sourceType")
+        if not status:
+            status = result.get("sourceType") or result.get("cacheType")
+        if not status:
+            method = " ".join(str(existing.get(key, result.get(key, ""))) for key in ("method", "source", "tool")).lower()
+            if result.get("_paused") or result.get("status") in {"unavailable", "paused", "no_data"}:
+                status = "unavailable"
+            elif any(token in method for token in ("local", "heuristic", "fallback", "user-provided")):
+                status = "local-analysis"
+            elif any(token in method for token in ("iedb", "uniprot", "blast", "vfdb", "phobius", "alphafold", "jcat")):
+                status = "real"
+            else:
+                status = "unavailable"
+        existing["status"] = status
+        existing.setdefault("tool", step.tool)
+        existing.setdefault("step", step.id)
+        existing.setdefault("method", result.get("method") or result.get("algorithm"))
+        return existing
+    if result.get("_paused") or result.get("status") in {"unavailable", "paused", "no_data"}:
+        status = "unavailable"
+    else:
+        method = " ".join(
+            str(result.get(key, ""))
+            for key in ("method", "methodName", "algorithm", "source", "sourceType")
+        ).lower()
+        if result.get("cached") or "cached-real" in method:
+            status = "cached-real"
+        elif any(token in method for token in ("local", "heuristic", "fallback", "user-provided")):
+            status = "local-analysis"
+        elif any(token in method for token in ("iedb", "uniprot", "blast", "vfdb", "phobius", "alphafold", "jcat")):
+            status = "real"
+        else:
+            status = "unavailable"
+    result["provenance"] = {
+        "status": status,
+        "tool": step.tool,
+        "step": step.id,
+        "method": result.get("method") or result.get("algorithm"),
+    }
+    return result["provenance"]
+
+
 def _event(job_id: str, **kw) -> PipelineEvent:
     return PipelineEvent(id=f"evt-{uuid.uuid4().hex[:12]}", jobId=job_id, timestamp=_now_iso(), **kw)
 
@@ -224,6 +278,13 @@ class Engine:
         """
         try:
             result = await run_runner(job, step, timeout=runner_timeout(step.id))
+            provenance = _result_provenance(result, step)
+            if provenance.get("status") == "unavailable":
+                raise ToolUnavailableError(
+                    tool_name=step.tool,
+                    reason="No validated real or explicitly documented local analysis result was produced.",
+                    workaround="Provide the required input/tool and retry the step.",
+                )
             step.status = "success"
             step.percent = 100
             step.duration = int(result.get("duration", 1)) or 1
@@ -282,6 +343,10 @@ class Engine:
                 "workaround": exc.workaround,
                 "message": str(exc),
             }
+            # Official lifecycle status is supplied only by its backend-safe
+            # adapter. Existing pauses retain their exact public shape.
+            if exc.public_status is not None:
+                step.result["officialLifecycle"] = exc.public_status
             job.status = "paused"
             await self._emit(
                 job.id,
@@ -359,30 +424,34 @@ class Engine:
                 "filterLabel": f"CD-HIT ≥ {job.config.cdHitThreshold}% identity",
             },
 ]
-        deg_scope = session.get("deg_scope") or "all"
-        org_for_label = None if deg_scope in {"all", "all_deg", "all_organisms"} else (job.pathogenName or deg.REFERENCE_ORGANISM)
+        # Essentiality is now always determined against the complete DEG 10
+        # bacterial essential-gene set (see runner.runner_identify_essential).
+        deg_label = "DEG 10 (complete bacterial set)"
         if essential_count:
                 funnel.append(
                     {
                         "key": "essential",
                         "label": "Essential proteins",
                         "count": essential_count,
-                        "filterLabel": deg.reference_label(org_for_label),
+                        "filterLabel": deg_label,
                     }
                 )
 
         # Phase 2-4 (Phobius) / 3-3 (VFDB) / 3-4 (human homology) filter stages.
         # Each only appears once its runner has written real counts into the
         # session; otherwise the stashed or previously-reported value is preserved.
+        # Report the PSORTb subcellular-localization count (paper's
+        # "Proteins Selected through Subcellular localization" row). The
+        # working set is further refined by the TMH/Phobius steps downstream.
         surface_exposed = session.get("surface_exposed") or {}
-        se_count = surface_exposed.get("count") or fc.get("surface_exposed") or previous.get("surface_exposed")
+        se_count = fc.get("surface_exposed") or surface_exposed.get("count") or previous.get("surface_exposed")
         if se_count:
             funnel.append(
                 {
                     "key": "surface_exposed",
                     "label": "Surface-exposed",
                     "count": se_count,
-                    "filterLabel": "Phobius (EBI)",
+                    "filterLabel": "PSORTb 3.0",
                 }
             )
 
@@ -470,7 +539,7 @@ class Engine:
         retried = False
         for phase in job.phases:
             for step in phase.steps:
-                if step.status == "failed" and STEP_RUNNERS.get(step.id) and job.config.realTools:
+                if step.status in ("failed", "paused") and STEP_RUNNERS.get(step.id) and job.config.realTools:
                     step.status = "pending"
                     step.percent = None
                     step.error = None

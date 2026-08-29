@@ -23,8 +23,8 @@ PHASES: list[tuple[str, list[tuple[str, str]]]] = [
     ]),
     ("Structural Prediction & Validation", [
         ("Physicochemical Properties", "ProtParam"),
-        ("3D Structure Prediction", "SwissModel"),
-        ("Structure Quality Validation", "ERRAT"),
+        ("3D Structure Prediction", "Structure Provider"),
+        ("Structure Quality Validation", "Local coordinate quality analysis"),
         ("Secondary Structure Prediction", "SOPMA"),
     ]),
     ("CTL (CD8+ T-Cell) Epitope Prediction & Filtering", [
@@ -32,7 +32,7 @@ PHASES: list[tuple[str, list[tuple[str, str]]]] = [
         ("CTL Antigenicity", "VaxiJen"),
         ("CTL Allergenicity", "AlgPred 2.0"),
         ("CTL Toxicity", "ToxinPred"),
-        ("CTL Immunogenicity", "IEDB"),
+        ("CTL Immunogenicity", "Local analysis (IEDB inputs)"),
     ]),
     ("HTL (CD4+ T-Cell) Epitope Prediction & Filtering", [
         ("Predict HTL Epitopes", "IEDB MHC-II"),
@@ -52,7 +52,7 @@ PHASES: list[tuple[str, list[tuple[str, str]]]] = [
     ]),
     ("Population Coverage & Epitope Overlap", [
         ("Population Coverage Analysis", "IEDB-AR"),
-        ("CTL-HTL Epitope Overlap Analysis", "Custom"),
+        ("CTL-HTL Epitope Overlap Analysis", "Local sequence overlap"),
     ]),
     ("MEV Construct Assembly", [("Select Adjuvant", "Library"), ("Assemble MEV Construct", "BioPython")]),
     ("MEV Construct Validation", [

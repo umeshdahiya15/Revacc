@@ -16,22 +16,29 @@ from __future__ import annotations
 import asyncio
 import csv
 import io
-from dataclasses import dataclass
-from typing import Iterable
+from dataclasses import asdict, dataclass
+from typing import Any, Iterable
 
 import httpx
 
+from app.tools import api_cache
+
 MHCI_URL = "https://tools-cluster-interface.iedb.org/tools_api/mhci/"
 MHCII_URL = "https://tools-cluster-interface.iedb.org/tools_api/mhcii/"
-USER_AGENT = "mev-pipeline/0.1 (multi-epitope vaccine pipeline; contact@example.org)"
+USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 REQUEST_TIMEOUT = 180.0
 MAX_RETRIES = 4
 # IEDB pairs allele/length lists element-wise, so each allele needs a length.
 DEFAULT_MHCI_LENGTHS = ("9", "10")
 DEFAULT_MHCII_LENGTHS = ("15",)
-# Strong binder thresholds used when selecting epitopes for the funnel.
+# IEDB's live consensus MHC-I endpoint supports 12-mers (verified by a real
+# request on the configured endpoint). The paper protocol therefore uses the
+# consensus 12-mer path here; no local predictor is substituted on outage.
+CTL_LENGTHS = ("12",)
+CTL_METHOD = "consensus"
+# Strong-binder defaults used by generic helper callers.
 MHCI_STRONG_PERCENTILE = 2.0
-MHCII_STRONG_PERCENTILE = 10.0
+MHCII_STRONG_PERCENTILE = 2.0
 
 # IEDB batches sequences by URL-encoding multi-FASTA; a polite client keeps
 # each request small (a handful of full-length proteins) and spaces them out.
@@ -39,6 +46,7 @@ MHCII_STRONG_PERCENTILE = 10.0
 # well between attempts.
 BATCH_SIZE = 4
 BATCH_COOLDOWN_SEC = 3.0
+ALLELE_BATCH_SIZE = 5
 
 _RETRYABLE = (429, 500, 502, 503, 504)
 # Longer backoff than a local tool: IEDB's shared cluster needs breathing room.
@@ -85,10 +93,23 @@ def _fasta(queries: Iterable[tuple[str, str]]) -> str:
 def _parse_tsv(text: str, *, has_rank: bool) -> list[EpitopePrediction]:
     rows: list[EpitopePrediction] = []
     reader = csv.DictReader(io.StringIO(text), delimiter="\t")
+    # Rank column name varies by method:
+    #   netmhcpan_el (MHC-I)      -> percentile_rank
+    #   consensus (MHC-I)         -> consensus_percentile_rank
+    #   consensus (MHC-II)        -> percentile_rank
+    #   netmhciipan_el (MHC-II)   -> rank
+    _RANK_KEYS = ("consensus_percentile_rank", "percentile_rank", "rank", "adjusted_rank")
     for raw in reader:
-        rank_key = "rank" if has_rank else "percentile_rank"
         try:
-            percentile = float(raw.get(rank_key) or 0) if raw.get(rank_key) else None
+            percentile = None
+            for _k in _RANK_KEYS:
+                _v = raw.get(_k)
+                if _v not in (None, "", "-"):
+                    try:
+                        percentile = float(_v)
+                        break
+                    except ValueError:
+                        continue
             ic50 = float(raw.get("ic50") or 0) if raw.get("ic50") else None
             score = float(raw.get("score") or 0) if raw.get("score") else None
             rows.append(
@@ -125,8 +146,26 @@ async def predict_mhci(
     lengths: tuple[str, ...] = DEFAULT_MHCI_LENGTHS,
     method: str = "netmhcpan_el",
 ) -> list[EpitopePrediction]:
-    """Predict MHC-I (CTL) epitopes for (name, sequence) protein queries."""
-    return await _predict(MHCI_URL, queries, alleles=alleles, lengths=lengths, method=method, has_rank=False)
+    """Predict MHC-I (CTL) epitopes using small, cacheable allele batches.
+
+    IEDB's shared cluster is unreliable when all population alleles are sent
+    in one request. Splitting the allele panel keeps each request within the
+    service's practical limit while preserving the complete consensus panel.
+    """
+    all_predictions: list[EpitopePrediction] = []
+    for start in range(0, len(alleles), ALLELE_BATCH_SIZE):
+        batch_alleles = alleles[start : start + ALLELE_BATCH_SIZE]
+        all_predictions.extend(
+            await _predict(
+                MHCI_URL,
+                queries,
+                alleles=batch_alleles,
+                lengths=lengths,
+                method=method,
+                has_rank=False,
+            )
+        )
+    return all_predictions
 
 
 async def predict_mhcii(
@@ -140,13 +179,64 @@ async def predict_mhcii(
 
     Splits alleles into batches of 5 to avoid IEDB API limits.
     """
-    BATCH_ALLELE_SIZE = 5
     all_predictions: list[EpitopePrediction] = []
-    for start in range(0, len(alleles), BATCH_ALLELE_SIZE):
-        batch_alleles = alleles[start : start + BATCH_ALLELE_SIZE]
+    for start in range(0, len(alleles), ALLELE_BATCH_SIZE):
+        batch_alleles = alleles[start : start + ALLELE_BATCH_SIZE]
         preds = await _predict(MHCII_URL, queries, alleles=batch_alleles, lengths=lengths, method=method, has_rank=True)
         all_predictions.extend(preds)
     return all_predictions
+
+
+def _serialize_prediction(prediction: EpitopePrediction) -> dict[str, Any]:
+    """Convert a parsed IEDB row into the JSON-safe cache representation."""
+    return asdict(prediction)
+
+
+def _deserialize_prediction(value: dict[str, Any]) -> EpitopePrediction:
+    """Restore one :class:`EpitopePrediction` from the cache representation."""
+    return EpitopePrediction(
+        allele=str(value.get("allele") or ""),
+        seq_num=int(value.get("seq_num") or 0),
+        start=int(value.get("start") or 0),
+        end=int(value.get("end") or 0),
+        length=int(value.get("length") or 0),
+        peptide=str(value.get("peptide") or ""),
+        ic50=float(value["ic50"]) if value.get("ic50") is not None else None,
+        percentile_rank=(
+            float(value["percentile_rank"])
+            if value.get("percentile_rank") is not None
+            else None
+        ),
+        score=float(value["score"]) if value.get("score") is not None else None,
+        core=str(value["core"]) if value.get("core") is not None else None,
+    )
+
+
+def _cache_params(
+    url: str,
+    queries: list[tuple[str, str]],
+    *,
+    alleles: list[str],
+    lengths: tuple[str, ...],
+    method: str,
+    has_rank: bool,
+) -> dict[str, Any]:
+    """Build a collision-safe key for one complete IEDB prediction request.
+
+    Query names are retained alongside their sequences because the parsed rows
+    use positional ``seq_num`` values.  This prevents a cached result from a
+    differently labelled query set from being applied to a caller's source
+    proteins, while still making every sequence value explicit in the key.
+    """
+    return {
+        "cacheContract": "iedb-v2",
+        "url": url,
+        "method": method,
+        "alleles": list(alleles),
+        "lengths": list(lengths),
+        "sequences": [{"name": name, "sequence": sequence} for name, sequence in queries],
+        "has_rank": has_rank,
+    }
 
 
 async def _predict(
@@ -164,35 +254,49 @@ async def _predict(
         raise ValueError("At least one MHC allele is required for IEDB prediction.")
 
     allele_csv, length_csv = _flatten_alleles(alleles, lengths)
+    params = _cache_params(
+        url,
+        queries,
+        alleles=alleles,
+        lengths=lengths,
+        method=method,
+        has_rank=has_rank,
+    )
 
-    async with httpx.AsyncClient(
-        timeout=REQUEST_TIMEOUT,
-        headers={"User-Agent": USER_AGENT},
-        follow_redirects=True,
-    ) as client:
-        predictions: list[EpitopePrediction] = []
-        for i in range(0, len(queries), BATCH_SIZE):
-            batch = queries[i : i + BATCH_SIZE]
-            response = await _post(
-                client,
-                url,
-                {
-                    "method": method,
-                    "sequence_text": _fasta(batch),
-                    "allele": allele_csv,
-                    "length": length_csv,
-                },
-            )
-            # IEDB numbers `seq_num` 1..N within each request only. Remap to
-            # the GLOBAL query index so callers can attribute every epitope
-            # row back to its source protein regardless of batching.
-            for p in _parse_tsv(response.text, has_rank=has_rank):
-                if 1 <= p.seq_num <= len(batch):
-                    p.seq_num = i + p.seq_num
-                predictions.append(p)
-            if i + BATCH_SIZE < len(queries):
-                await asyncio.sleep(BATCH_COOLDOWN_SEC)
-        return predictions
+    async def fetch_predictions() -> list[dict[str, Any]]:
+        """Fetch, parse, and globally remap one complete IEDB request."""
+        async with httpx.AsyncClient(
+            timeout=REQUEST_TIMEOUT,
+            headers={"User-Agent": USER_AGENT},
+            follow_redirects=True,
+        ) as client:
+            predictions: list[EpitopePrediction] = []
+            for i in range(0, len(queries), BATCH_SIZE):
+                batch = queries[i : i + BATCH_SIZE]
+                response = await _post(
+                    client,
+                    url,
+                    {
+                        "method": method,
+                        "sequence_text": _fasta(batch),
+                        "allele": allele_csv,
+                        "length": length_csv,
+                        "species": "human",
+                    },
+                )
+                # IEDB numbers `seq_num` 1..N within each request only. Remap
+                # to the GLOBAL query index so callers can attribute every
+                # epitope row back to its source protein regardless of batching.
+                for prediction in _parse_tsv(response.text, has_rank=has_rank):
+                    if 1 <= prediction.seq_num <= len(batch):
+                        prediction.seq_num = i + prediction.seq_num
+                    predictions.append(prediction)
+                if i + BATCH_SIZE < len(queries):
+                    await asyncio.sleep(BATCH_COOLDOWN_SEC)
+            return [_serialize_prediction(prediction) for prediction in predictions]
+
+    cached_rows = await api_cache.cached_async_api_call("iedb", params, fetch_predictions)
+    return [_deserialize_prediction(row) for row in cached_rows]
 
 
 def strong_binders(

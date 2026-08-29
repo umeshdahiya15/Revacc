@@ -10,7 +10,7 @@ descriptors using auto-cross-covariance, then classified by an SVM
 trained on antigen/non-antigen pairs.
 
 We simplify: compute ACC descriptors + a calibrated linear classifier.
-Threshold for bacteria: 0.4 (score >= 0.4 → antigenic).
+Threshold for bacteria: 0.50 (score >= 0.50 → antigenic).
 """
 from __future__ import annotations
 
@@ -151,7 +151,7 @@ def predict_antigenicity(sequence: str, organism_type: str = "bacteria") -> floa
     Returns
     -------
     float
-        Antigenicity score. Threshold for bacteria: 0.4
+        Antigenicity score. Threshold for bacteria: 0.50
         (score >= threshold → predicted antigenic).
     """
     seq = "".join(aa for aa in sequence.upper() if aa in AMINO_ACID_PROPERTIES)

@@ -34,6 +34,13 @@ def cluster(
     if len(sequences) == 1 or min_len < word:
         return [[0] * len(sequences)], [0]
 
+    # Scale word size up for large proteomes to speed up k-mer prefiltering
+    n_seqs = len(sequences)
+    if n_seqs > 1000:
+        word = max(word, 7)
+    if n_seqs > 3000:
+        word = max(word, 10)
+
     seed_of_kmers: dict[str, set[int]] = defaultdict(set)
     clusters: list[list[int]] = []
     rep_of: dict[int, int] = {}  # cluster index -> seed seq index
@@ -53,10 +60,11 @@ def cluster(
             if not kmers.intersection(seed_kmers[cluster_index]):
                 continue
             seed_seq = sequences[rep_of[cluster_index]]
+            # Quick length check: if lengths differ by more than (1-identity), skip
+            len_ratio = min(len(seed_seq), len(seq)) / max(len(seed_seq), len(seq))
+            if len_ratio < identity:
+                continue
             matcher = SequenceMatcher(None, seed_seq, seq)
-            # quick_ratio is an upper bound on ratio(); skip full diff when
-            # it cannot reach the threshold (avoids O(n*m) difflib for most
-            # candidate pairs — the dominant cost on large proteomes).
             if matcher.quick_ratio() < identity:
                 continue
             if matcher.ratio() >= identity:

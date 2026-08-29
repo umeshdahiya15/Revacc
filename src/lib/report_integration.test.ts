@@ -153,4 +153,32 @@ describe("pipeline report integration", () => {
     expect(comparison.map((run) => run.mevMetrics.mev_length)).toEqual([336, 620]);
     expect(comparison.map((run) => run.mevMetrics.length)).toEqual([336, 620]);
   });
+
+  it("keeps the single-run report safe when official lifecycle status is present", () => {
+    // **Validates: Requirements 2.12, 3.13, 3.14**
+    const marker = "sensitive-fixture-marker";
+    const job = makeJob("run-status", "Official status run", { essential: 1330, surface: 405 }, 336);
+    const officialStep = step("11-2", {
+      officialLifecycle: {
+        status: "paused",
+        provider: "swissmodel",
+        messageCode: "swissmodel_official_lifecycle_unavailable",
+        message: marker,
+        rawProviderPayload: marker,
+      },
+      rawProviderPayload: marker,
+    });
+    officialStep.status = "paused";
+    officialStep.error = { message: marker, retries: 0, severity: "pause", tool: "provider" };
+    job.phases.push({ number: 11, name: "Structure", status: "paused", steps: [officialStep] });
+
+    expect(() => generateReportPdf(job)).not.toThrow();
+    const officialRow = tableCalls
+      .filter((call) => call.head?.[0]?.[0] === "Step")
+      .flatMap((call) => call.body ?? [])
+      .find((row) => row[0] === "11.2");
+    const detailText = officialRow?.join(" ") ?? "";
+    expect(detailText).toContain("official lifecycle");
+    expect(detailText).not.toContain(marker);
+  });
 });

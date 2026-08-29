@@ -2,6 +2,26 @@ import type { LucideIcon } from "lucide-react";
 
 export type JobStatus = "created" | "running" | "paused" | "completed" | "failed";
 export type PhaseStatus = "pending" | "running" | "completed" | "failed" | "paused" | "skipped";
+export type OfficialLifecycleState = "queued" | "running" | "paused" | "failed" | "succeeded";
+
+/** Allowlisted public provenance for an official SWISS-MODEL lifecycle job. */
+export interface OfficialLifecycleStatus {
+  status: OfficialLifecycleState;
+  provider: "swissmodel";
+  message: string;
+  action: string;
+  messageCode?: string;
+  mevFingerprint?: string;
+  method?: string;
+  selectionId?: string;
+  requestId?: string;
+  modelId?: string;
+  modelUrl?: string;
+  pdbQualified?: true;
+  submittedAt?: string;
+  updatedAt?: string;
+  completedAt?: string;
+}
 export type StepStatus = "pending" | "running" | "success" | "failed" | "skipped" | "paused";
 export type EpitopeType = "CTL" | "HTL" | "BCELL_LINEAR" | "BCELL_CONFORMATIONAL";
 export type ApiKind = "api" | "scrape" | "local";

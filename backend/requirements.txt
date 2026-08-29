@@ -10,3 +10,8 @@ SQLAlchemy>=2.0.0
 asyncpg>=0.29.0
 aioredis>=2.0.0
 alembic>=1.13.0
+
+# Test infrastructure for deterministic exploration, preservation, and PBT suites
+pytest==8.3.5
+pytest-asyncio==0.25.3
+hypothesis==6.131.9

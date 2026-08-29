@@ -109,13 +109,14 @@ class IEDBRunnerTest(unittest.TestCase):
         job = self._make_job()
         self._seed_candidates(job)
 
-        with mock.patch.object(runner_mod.iedb, "predict_mhci", side_effect=lambda q, alleles: _epitope_hits(mhci=True)) as pred:
+        with mock.patch.object(runner_mod.iedb, "predict_mhci", side_effect=lambda q, alleles, **kwargs: _epitope_hits(mhci=True)) as pred:
             result = self._loop().run_until_complete(self._run_step(job, "5-1"))
 
         self.assertEqual(pred.call_count, 1)
         self.assertEqual(result["selected"], 2)  # top per protein (SVPNKLSYL, YTFATVAPV)
         session = runner_mod.get_session_peek(job.id)
         self.assertEqual(len(session["epitopes"]), 2)
+        self.assertTrue(all(epitope["source"] == "real" for epitope in session["epitopes"]))
 
         # Simulate the engine post-step bookkeeping (funnel + job.epitopes).
         async def _sim():
@@ -137,13 +138,14 @@ class IEDBRunnerTest(unittest.TestCase):
         job = self._make_job()
         self._seed_candidates(job)
 
-        with mock.patch.object(runner_mod.iedb, "predict_mhcii", side_effect=lambda q, alleles: _epitope_hits(mhci=False)) as pred:
+        with mock.patch.object(runner_mod.iedb, "predict_mhcii", side_effect=lambda q, alleles, **kwargs: _epitope_hits(mhci=False)) as pred:
             result = self._loop().run_until_complete(self._run_step(job, "6-1"))
 
         self.assertEqual(pred.call_count, 1)
         self.assertEqual(result["selected"], 1)  # only the strong binder
         session = runner_mod.get_session_peek(job.id)
         self.assertEqual(len(session["epitopes"]), 1)
+        self.assertTrue(all(epitope["source"] == "real" for epitope in session["epitopes"]))
         self.assertEqual(session["epitopes"][0]["type"], "HTL")
 
         async def _sim():
@@ -158,6 +160,22 @@ class IEDBRunnerTest(unittest.TestCase):
         self.assertEqual(mhc_ii["count"], 1)
         self.assertTrue(mhc_ii["final"])
 
+    def test_runner_iedb_outage_raises_honest_unavailable_error(self) -> None:
+        """An IEDB outage must not produce synthetic scientific epitope rows."""
+        from app.tools.graceful_pause import ToolUnavailableError
+
+        job = self._make_job()
+        self._seed_candidates(job)
+
+        with mock.patch.object(runner_mod.iedb, "predict_mhci", side_effect=ConnectionError("IEDB unavailable")):
+            with self.assertRaises(ToolUnavailableError) as caught:
+                self._loop().run_until_complete(self._run_step(job, "5-1"))
+
+        self.assertIn("IEDB", caught.exception.tool_name)
+        self.assertIn("no synthetic epitopes", str(caught.exception).lower())
+        session = runner_mod.get_session_peek(job.id)
+        self.assertEqual(session.get("epitopes", []), [])
+
     def test_runner_requires_candidates(self) -> None:
         job = self._make_job()
         with self.assertRaises(RuntimeError):
@@ -166,7 +184,7 @@ class IEDBRunnerTest(unittest.TestCase):
     def test_epitopes_endpoint(self) -> None:
         job = self._make_job()
         self._seed_candidates(job)
-        with mock.patch.object(runner_mod.iedb, "predict_mhci", side_effect=lambda q, alleles: _epitope_hits(mhci=True)):
+        with mock.patch.object(runner_mod.iedb, "predict_mhci", side_effect=lambda q, alleles, **kwargs: _epitope_hits(mhci=True)):
             self._loop().run_until_complete(self._run_step(job, "5-1"))
         session = runner_mod.get_session_peek(job.id)
         job.epitopes = [Epitope(**e) for e in session["epitopes"]]

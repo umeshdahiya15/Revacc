@@ -40,6 +40,12 @@ MAX_RETRIES = 3
 DEG_DB_NAME = "deg_essential"
 HUMAN_DB_NAME = "human_reviewed"
 
+# Complete bacterial essential-protein set (DEG 10) — the real reference the
+# reverse-vaccinology literature BLASTs against for essentiality. 26,619
+# essential proteins across all sequenced bacteria. Downloaded once, cached.
+DEG10_AA_URL = "http://tubic.org/deg/public/download/DEG10.aa.gz"
+DEG10_DB_NAME = "deg10_bacteria"
+
 
 class LocalBlastError(RuntimeError):
     """Raised when local BLAST binaries are missing or a search fails."""
@@ -156,6 +162,52 @@ async def ensure_deg_fasta(*, organism: str | None = None, all_organisms: bool =
     with open(fasta_path, "w") as out:
         out.write(text)
     return fasta_path
+
+
+async def ensure_deg10_fasta() -> str:
+    """Download the complete DEG 10 bacterial essential-protein FASTA (once).
+
+    This is the real, full essential-gene reference (26,619 proteins) — not a
+    GI-restricted subset. Cached to disk and reused across runs.
+    """
+    import gzip
+
+    fasta_path = os.path.join(CACHE_DIR, "DEG10.aa")
+    if os.path.exists(fasta_path) and os.path.getsize(fasta_path) > 0:
+        return fasta_path
+
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    gz_path = os.path.join(CACHE_DIR, "DEG10.aa.gz")
+    await _download(DEG10_AA_URL, destination=Path(gz_path))
+    with gzip.open(gz_path, "rb") as gz:
+        data = gz.read()
+    if b">" not in data:
+        raise RuntimeError("DEG10.aa.gz did not contain FASTA sequences.")
+    with open(fasta_path, "wb") as out:
+        out.write(data)
+    return fasta_path
+
+
+async def ensure_deg10_db() -> str:
+    """Build (once) the local BLAST DB of the complete DEG 10 essential set."""
+    if db_exists(DEG10_DB_NAME):
+        return db_path(DEG10_DB_NAME)
+    require_local_blast()
+    fasta = await ensure_deg10_fasta()
+    return _build_db(fasta, DEG10_DB_NAME)
+
+
+def deg10_reference_size() -> int:
+    """Number of essential proteins in the cached DEG10 FASTA (0 if absent)."""
+    fasta_path = os.path.join(CACHE_DIR, "DEG10.aa")
+    if not os.path.exists(fasta_path):
+        return 0
+    count = 0
+    with open(fasta_path, "r", errors="replace") as fh:
+        for line in fh:
+            if line.startswith(">"):
+                count += 1
+    return count
 
 
 async def ensure_human_fasta() -> str:

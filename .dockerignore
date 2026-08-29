@@ -1,0 +1,44 @@
+# VCS and project metadata
+.git
+.gitignore
+.kiro
+.vscode
+.DS_Store
+
+# Frontend/development dependencies and build output
+node_modules
+.next
+out
+coverage
+
+# Local Python environments, caches, tests, and tooling artifacts
+**/.venv
+**/venv
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.hypothesis
+**/.mypy_cache
+**/.ruff_cache
+**/.cache
+**/test_*.py
+**/tests
+backend/e2e_driver.py
+
+# Local runtime data and scientific datasets are not baked into the API image.
+backend/data
+backend/databases
+backend/.iedb_tools
+
+# Logs, reports, and local process state
+**/*.log
+.logs
+.pids
+*.pdf
+
+# Never send local configuration or credentials to the Docker daemon.
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
