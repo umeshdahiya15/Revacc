@@ -144,20 +144,22 @@ backend_proc = subprocess.Popen(
      "--host", "0.0.0.0", "--port", str(BACKEND_PORT)],
     cwd=f"{WORKDIR}/backend",
     env=env,
-    stdout=subprocess.PIPE,
-    stderr=subprocess.STDOUT,
 )
 
+# Wait for backend
 for i in range(40):
     time.sleep(1)
+    # Check if process died
+    if backend_proc.poll() is not None:
+        print(f"Backend process exited with code {backend_proc.returncode}")
+        sys.exit(1)
     try:
         urllib.request.urlopen(f"http://localhost:{BACKEND_PORT}/api/health", timeout=2)
         print(f"Backend started (PID: {backend_proc.pid})")
         break
     except Exception:
         if i == 39:
-            out = backend_proc.stdout.read().decode() if backend_proc.stdout else ""
-            print(f"BACKEND FAILED:\n{out[-1000:]}")
+            print("BACKEND FAILED TO START (timeout)")
             sys.exit(1)
 
 # Start ngrok
@@ -180,17 +182,16 @@ print(f"\n  Keep this cell running! Backend stops when you interrupt.")
 # Keep alive
 print("\nKeeping backend alive... (Interrupt to stop)")
 while True:
-    time.sleep(60)
-    try:
-        urllib.request.urlopen(f"http://localhost:{BACKEND_PORT}/api/health", timeout=5)
-    except Exception:
-        print("Backend died, restarting...")
+    time.sleep(30)
+    if backend_proc.poll() is not None:
+        print(f"Backend died (exit code {backend_proc.returncode}), restarting...")
+        # Kill any leftover process on the port
+        subprocess.run(f"fuser -k {BACKEND_PORT}/tcp 2>/dev/null; true", shell=True)
+        time.sleep(2)
         backend_proc = subprocess.Popen(
             [PYTHON, "-m", "uvicorn", "app.main:app",
              "--host", "0.0.0.0", "--port", str(BACKEND_PORT)],
             cwd=f"{WORKDIR}/backend",
             env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
         )
         time.sleep(5)
