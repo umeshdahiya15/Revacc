@@ -1,40 +1,44 @@
 ## ======================================================================
 ## REVACC — Colab T4 Backend + Ngrok (frontend-controlled)
 ## ======================================================================
-## This script ONLY starts the backend + ngrok tunnel.
+## Reads NGROK_AUTHTOKEN from Colab Secrets.
 ## You control the pipeline from the Vercel frontend.
 ##
 ## HOW TO USE:
 ##   1. Open Google Colab → Runtime → Change runtime type → T4 GPU
 ##   2. Paste this ENTIRE script into ONE code cell
-##   3. Set NGROK_AUTHTOKEN below
+##   3. Ensure secrets: GITHUB_TOKEN + NGROK_AUTHTOKEN
 ##   4. Run the cell
-##   5. Copy the ngrok URL → set in Vercel as NEXT_PUBLIC_API_URL → redeploy
+##   5. Copy ngrok URL → set in Vercel as NEXT_PUBLIC_API_URL → redeploy
 ##   6. Run pipeline from the Vercel UI
 ## ======================================================================
-
-# ─── CONFIGURATION (edit these) ────────────────────────────────────────────────
-NGROK_AUTHTOKEN = ""  #@param {type:"string"}
-BACKEND_PORT = 8000
-REPO_URL = "https://github.com/umeshdahiya15/Revacc.git"
-WORKDIR = "/content/Revacc"
 
 import os, sys, subprocess, time, json, urllib.request
 
 PYTHON = sys.executable
+REPO_URL = "https://github.com/umeshdahiya15/Revacc.git"
+WORKDIR = "/content/Revacc"
+BACKEND_PORT = 8000
+
 print(f"Using Python: {PYTHON}")
 
-# Read GitHub token from Colab secrets
+# ─── READ SECRETS ─────────────────────────────────────────────────────────────
 try:
     from google.colab import userdata
     GITHUB_TOKEN = userdata.get('GITHUB_TOKEN')
+    NGROK_AUTHTOKEN = userdata.get('NGROK_AUTHTOKEN')
 except Exception:
     GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', '')
+    NGROK_AUTHTOKEN = os.environ.get('NGROK_AUTHTOKEN', '')
 
 if not GITHUB_TOKEN:
     print("ERROR: Set GITHUB_TOKEN in Colab Secrets (left panel → key icon)")
     sys.exit(1)
-print(f"GitHub token loaded ({len(GITHUB_TOKEN)} chars)")
+if not NGROK_AUTHTOKEN:
+    print("ERROR: Set NGROK_AUTHTOKEN in Colab Secrets (left panel → key icon)")
+    sys.exit(1)
+print(f"GITHUB_TOKEN loaded ({len(GITHUB_TOKEN)} chars)")
+print(f"NGROK_AUTHTOKEN loaded ({len(NGROK_AUTHTOKEN)} chars)")
 
 def sh(cmd):
     print(f"\n>>> {cmd}")
@@ -77,7 +81,6 @@ sh(f"{PYTHON} -m pip install --upgrade pip 'setuptools<81' wheel -q")
 sh(f"{PYTHON} -m pip install -r {WORKDIR}/backend/requirements.txt -q")
 sh(f"{PYTHON} -m pip install pyngrok -q")
 
-# Verify PyTorch CUDA
 sh(f"{PYTHON} -c \"import torch; print(f'PyTorch {{torch.__version__}}, CUDA={{torch.cuda.is_available()}}, GPU={{torch.cuda.get_device_name(0) if torch.cuda.is_available() else \\\"N/A\\\"}}')\"")
 
 # ─── STEP 4: ESMFOLD WEIGHTS ─────────────────────────────────────────────────
@@ -135,7 +138,6 @@ env.update({
 })
 os.makedirs("/content/blast_dbs", exist_ok=True)
 
-# Start uvicorn
 backend_proc = subprocess.Popen(
     [PYTHON, "-m", "uvicorn", "app.main:app",
      "--host", "0.0.0.0", "--port", str(BACKEND_PORT)],
@@ -145,7 +147,6 @@ backend_proc = subprocess.Popen(
     stderr=subprocess.STDOUT,
 )
 
-# Wait for backend
 for i in range(40):
     time.sleep(1)
     try:
@@ -159,26 +160,23 @@ for i in range(40):
             sys.exit(1)
 
 # Start ngrok
-if NGROK_AUTHTOKEN:
-    from pyngrok import ngrok
-    ngrok.set_auth_token(NGROK_AUTHTOKEN)
-    ngrok.kill()
-    tunnel = ngrok.bind(BACKEND_PORT)
-    public_url = tunnel.public_url
-    print(f"\n{'='*70}")
-    print(f"  NGROK TUNNEL: {public_url}")
-    print(f"{'='*70}")
-    print(f"\n  1. Copy the URL above")
-    print(f"  2. Go to Vercel → Settings → Environment Variables")
-    print(f"  3. Set: NEXT_PUBLIC_API_URL = {public_url}")
-    print(f"  4. Redeploy the frontend")
-    print(f"  5. Run pipeline from the Vercel UI")
-    print(f"\n  Keep this cell running! Backend stops when you interrupt.")
-else:
-    print("ERROR: Set NGROK_AUTHTOKEN in the script")
-    sys.exit(1)
+from pyngrok import ngrok
+ngrok.set_auth_token(NGROK_AUTHTOKEN)
+ngrok.kill()
+tunnel = ngrok.bind(BACKEND_PORT)
+public_url = tunnel.public_url
 
-# Keep alive — print status every 60s
+print(f"\n{'='*70}")
+print(f"  NGROK TUNNEL: {public_url}")
+print(f"{'='*70}")
+print(f"\n  1. Copy the URL above")
+print(f"  2. Go to Vercel → Settings → Environment Variables")
+print(f"  3. Set: NEXT_PUBLIC_API_URL = {public_url}")
+print(f"  4. Redeploy the frontend")
+print(f"  5. Run pipeline from the Vercel UI")
+print(f"\n  Keep this cell running! Backend stops when you interrupt.")
+
+# Keep alive
 print("\nKeeping backend alive... (Interrupt to stop)")
 while True:
     time.sleep(60)
