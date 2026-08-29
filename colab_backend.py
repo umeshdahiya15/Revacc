@@ -164,7 +164,7 @@ for i in range(40):
 from pyngrok import ngrok
 ngrok.set_auth_token(NGROK_AUTHTOKEN)
 ngrok.kill()
-tunnel = ngrok.bind(BACKEND_PORT)
+tunnel = ngrok.connect(BACKEND_PORT)
 public_url = tunnel.public_url
 
 print(f"\n{'='*70}")
