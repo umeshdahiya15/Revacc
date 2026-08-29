@@ -10,6 +10,7 @@ Covers:
 from __future__ import annotations
 
 import math
+import os
 import re
 
 IFN_GAMMA_MOTIFS = [
@@ -43,11 +44,11 @@ HLA_SUPERCLASS_II = ["HLA-DRB1*04:01", "HLA-DRB1*04:02", "HLA-DRB1*15:01", "HLA-
 # Recalibrated thresholds: when binding_score is provided, strong binders
 # (score > 0.7) with any motif are inducers; otherwise motif-only thresholds
 # apply. This ensures strong binders are not missed even with sparse motifs.
-IFN_GAMMA_SCORE_THRESHOLD = 0.45
+IFN_GAMMA_SCORE_THRESHOLD = float(os.environ.get("IFN_GAMMA_THRESHOLD", "0.45"))
 IFN_GAMMA_BINDING_THRESHOLD = 0.7
-IL4_SCORE_THRESHOLD = 0.2
+IL4_SCORE_THRESHOLD = float(os.environ.get("IL4_THRESHOLD", "0.2"))
 IL4_BINDING_THRESHOLD = 0.7
-IL10_SCORE_THRESHOLD = -0.3
+IL10_SCORE_THRESHOLD = float(os.environ.get("IL10_THRESHOLD", "-0.3"))
 IL10_BINDING_THRESHOLD = 0.7
 
 

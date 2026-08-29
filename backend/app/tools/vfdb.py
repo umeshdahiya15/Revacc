@@ -26,9 +26,9 @@ VFDB_URL = "http://www.mgc.ac.cn/VFs/Down/VFDB_setA_pro.fas.gz"
 VFDB_MIRROR = "https://zenodo.org/records/7511135/files/VFDB_setA_pro.fas.gz"
 VFDB_CACHE_DIR = os.environ.get("MEV_VFDB_CACHE", os.path.join(tempfile.gettempdir(), "mev-vfdb"))
 VFDB_FASTA_NAME = "VFDB_setA_pro.fas"
-VFDB_IDENTITY_THRESHOLD = 30.0
-VFDB_EVALUE_THRESHOLD = 1e-4
-VFDB_BITSCORE_THRESHOLD = 100.0
+VFDB_IDENTITY_THRESHOLD = float(os.environ.get("VFDB_IDENTITY_THRESHOLD", "30.0"))
+VFDB_EVALUE_THRESHOLD = float(os.environ.get("VFDB_EVALUE_THRESHOLD", "1e-4"))
+VFDB_BITSCORE_THRESHOLD = float(os.environ.get("VFDB_BITSCORE_THRESHOLD", "100.0"))
 _HTTP_TIMEOUT = 90.0
 
 

@@ -12,6 +12,7 @@ We use a simplified version combining multiple scales.
 """
 from __future__ import annotations
 
+import os
 import re
 
 # Karplus & Schulz (1982) flexibility scale (normalized 0-1)
@@ -52,7 +53,7 @@ SURFACE_ACCESS = {
 
 # Window size for averaging (BepiPred default)
 WINDOW_SIZE = 7
-THRESHOLD = 0.5
+THRESHOLD = float(os.environ.get("BCELL_THRESHOLD", "0.5"))
 
 
 def _window_score(seq: str, pos: int, scale: dict, window: int = WINDOW_SIZE) -> float:

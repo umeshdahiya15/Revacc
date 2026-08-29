@@ -142,8 +142,8 @@ class _SubmissionGate:
             self._next_ok = time.monotonic() + self._seconds
 
 # Human-proteome homology filter parameters (Phase 3 step 4).
-HUMAN_HOMOLOGY_IDENTITY_THRESHOLD = 0.30
-HOMOLOGY_EVALUE_THRESHOLD = 1e-5
+HUMAN_HOMOLOGY_IDENTITY_THRESHOLD = float(os.environ.get("HUMAN_HOMOLOGY_IDENTITY", "0.30"))
+HOMOLOGY_EVALUE_THRESHOLD = float(os.environ.get("HOMOLOGY_EVALUE", "1e-5"))
 
 
 # ---------------------------------------------------------------------------

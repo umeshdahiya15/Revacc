@@ -15,6 +15,7 @@ Default threshold: sequence identity > 35% AND MW in [5kDa, 80kDa] → non-aller
 """
 from __future__ import annotations
 
+import os
 import re
 
 ALLERGEN_PFAM = {
@@ -125,7 +126,7 @@ def predict_allergenicity(
     # score for MW > 100 kDa was biologically inverted and false-positived large
     # surface antigens (e.g. C5a peptidase, ~127 kDa). It has been removed.
 
-    is_allergen = score >= 0.321 and len(reasons) > 0
+    is_allergen = score >= float(os.environ.get("ALGPRED_THRESHOLD", "0.321")) and len(reasons) > 0
     confidence = min(score, 1.0)
 
     return {

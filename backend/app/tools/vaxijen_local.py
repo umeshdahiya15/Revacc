@@ -15,6 +15,7 @@ Threshold for bacteria: 0.50 (score >= 0.50 → antigenic).
 from __future__ import annotations
 
 import math
+import os
 
 AMINO_ACID_PROPERTIES: dict[str, list[float]] = {
     'A': [0.24, 0.0, 0.0, 0.59, 0.36],
@@ -43,7 +44,7 @@ LAG = 30
 NUM_PROPERTIES = 5
 
 THRESHOLDS = {
-    "bacteria": 0.50,
+    "bacteria": float(os.environ.get("VAXIJEN_THRESHOLD", "0.50")),
     "virus": 0.50,
     "tumor": 0.50,
     "parasite": 0.50,
