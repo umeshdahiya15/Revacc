@@ -20,31 +20,37 @@ PATHOGEN_NAME = "Streptococcus agalactiae"
 BACKEND_PORT = 8000
 REPO_URL = "https://github.com/umeshdahiya15/Revacc.git"
 WORKDIR = "/content/Revacc"
-VENV = "/content/esmfold-env"
 
-import os, sys, subprocess, time, json, shutil, urllib.request
-from pathlib import Path
+import os, sys, subprocess, time, json, urllib.request
 
-os.environ["NGROK_AUTHTOKEN"] = NGROK_AUTHTOKEN
+# Colab already has Python 3.10 + CUDA — use system python directly
+PYTHON = sys.executable  # /usr/bin/python3
+print(f"Using Python: {PYTHON}")
 
-def sh(cmd, **kw):
-    """Run a shell command, stream output, raise on failure."""
+def sh(cmd):
+    """Run a shell command. Returns exit code."""
     print(f"\n>>> {cmd}")
-    r = subprocess.run(cmd, shell=True, capture_output=False, **kw)
+    r = subprocess.run(cmd, shell=True)
     if r.returncode != 0:
-        print(f"WARNING: command exited with code {r.returncode}")
+        print(f"  [exit {r.returncode}]")
     return r.returncode
 
 # ─── STEP 1: SYSTEM DEPS ─────────────────────────────────────────────────────
+# Colab already has: Python 3.10, PyTorch CUDA, BLAST+ (ncbi-blast+)
+# We only need to ensure ncbi-blast+ is available
 print("\n" + "="*70)
-print("STEP 1/8 — Installing system dependencies (BLAST+, Python 3.10)")
+print("STEP 1/8 — Verifying system dependencies")
 print("="*70)
 
-sh("apt-get update -qq")
-sh("apt-get install -y -qq blast+ ncbi-blast+ python3.10 python3.10-venv "
-   "python3.10-dev python3.10-distutils git wget curl")
+# Install BLAST+ if not present
+if sh("which blastp") != 0:
+    sh("apt-get update -qq")
+    sh("apt-get install -y -qq ncbi-blast+")
+else:
+    print("blastp already installed")
+
 sh("blastp -version 2>&1 | head -1")
-sh("python3.10 --version")
+sh(f"{PYTHON} --version")
 
 # ─── STEP 2: CLONE REPO ──────────────────────────────────────────────────────
 print("\n" + "="*70)
@@ -52,26 +58,26 @@ print("STEP 2/8 — Cloning Revacc repository")
 print("="*70)
 
 if os.path.exists(f"{WORKDIR}/.git"):
-    os.chdir(WORKDIR)
-    sh("git pull origin main")
+    print("Repository already cloned, pulling latest...")
+    sh(f"cd {WORKDIR} && git pull origin main")
 else:
     sh(f"git clone {REPO_URL} {WORKDIR}")
+    if not os.path.exists(f"{WORKDIR}/.git"):
+        print("ERROR: git clone failed")
+        sys.exit(1)
 
-# ─── STEP 3: PYTHON VENV + ALL DEPS ──────────────────────────────────────────
+# ─── STEP 3: PYTHON DEPS ────────────────────────────────────────────────────
+# Use Colab's system python (already has PyTorch CUDA pre-installed)
 print("\n" + "="*70)
-print("STEP 3/8 — Setting up Python 3.10 venv + dependencies")
+print("STEP 3/8 — Installing Python dependencies (uses Colab's PyTorch)")
 print("="*70)
 
-if not os.path.exists(VENV):
-    sh(f"python3.10 -m venv {VENV}")
+sh(f"{PYTHON} -m pip install --upgrade pip 'setuptools<81' wheel -q")
+sh(f"{PYTHON} -m pip install -r {WORKDIR}/backend/requirements.txt -q")
+sh(f"{PYTHON} -m pip install pyngrok -q")
 
-sh(f"{VENV}/bin/pip install --upgrade pip 'setuptools<81' wheel")
-sh(f"{VENV}/bin/pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121")
-sh(f"{VENV}/bin/pip install -r {WORKDIR}/backend/requirements.txt")
-sh(f"{VENV}/bin/pip install numpy==1.24.2 matplotlib==3.7.0 pyngrok")
-
-# Verify
-sh(f"{VENV}/bin/python -c \"import torch; print(f'PyTorch {{torch.__version__}}, CUDA={{torch.cuda.is_available()}}, GPU={{torch.cuda.get_device_name(0) if torch.cuda.is_available() else \\\"N/A\\\"}}')\"")
+# Verify PyTorch CUDA
+sh(f"{PYTHON} -c \"import torch; print(f'PyTorch {{torch.__version__}}, CUDA={{torch.cuda.is_available()}}, GPU={{torch.cuda.get_device_name(0) if torch.cuda.is_available() else \\\"N/A\\\"}}')\"")
 
 # ─── STEP 4: ESMFOLD WEIGHTS ─────────────────────────────────────────────────
 print("\n" + "="*70)
@@ -97,8 +103,7 @@ print("="*70)
 OPENFOLD_DIR = "/content/openfold"
 if not os.path.exists(OPENFOLD_DIR):
     sh(f"git clone --filter=blob:none https://github.com/aqlaboratory/openfold.git {OPENFOLD_DIR}")
-    os.chdir(OPENFOLD_DIR)
-    sh("git checkout 4b41059")
+    sh(f"cd {OPENFOLD_DIR} && git checkout 4b41059")
 
 # Patch C++14 → C++17 (REQUIRED for PyTorch 2.x)
 print("Patching C++14 → C++17...")
@@ -115,10 +120,10 @@ for root, dirs, files in os.walk(OPENFOLD_DIR):
             except Exception:
                 pass
 
-sh(f"{VENV}/bin/pip install -r {OPENFOLD_DIR}/requirements.txt")
-sh(f"{VENV}/bin/pip install pytorch-lightning==1.9.5")
+sh(f"{PYTHON} -m pip install -r {OPENFOLD_DIR}/requirements.txt -q")
+sh(f"{PYTHON} -m pip install pytorch-lightning==1.9.5 -q")
 print("Building CUDA extensions (3-5 min)...")
-sh(f"cd {OPENFOLD_DIR} && {VENV}/bin/python setup.py install")
+sh(f"cd {OPENFOLD_DIR} && {PYTHON} setup.py install")
 
 # ─── STEP 6: VERIFY ESMFOLD ON T4 ───────────────────────────────────────────
 print("\n" + "="*70)
@@ -136,7 +141,7 @@ pdb = model.infer_pdb("MKFLILLFNILCLFPVLAADNHGVSLQGFNKENYEKFDKARLENGITYDSIMYSGRD
 print(f"Test fold: {len(pdb)} chars PDB — ESMFOLD WORKING ON T4!")
 """)
 
-sh(f"{VENV}/bin/python /tmp/test_esmfold.py")
+sh(f"{PYTHON} /tmp/test_esmfold.py")
 
 # ─── STEP 7: START BACKEND + NGROK ───────────────────────────────────────────
 print("\n" + "="*70)
@@ -144,13 +149,12 @@ print("STEP 7/8 — Starting FastAPI backend + ngrok tunnel")
 print("="*70)
 
 # Kill old processes
-sh("pkill -f 'uvicorn.*{BACKEND_PORT}' 2>/dev/null; true")
+sh(f"pkill -f 'uvicorn.*{BACKEND_PORT}' 2>/dev/null; true")
 time.sleep(1)
 
 # Environment for backend process
 env = os.environ.copy()
 env.update({
-    "PATH": f"{VENV}/bin:{env.get('PATH', '')}",
     "PYTHONPATH": WORKDIR,
     # ── Paper-aligned thresholds (Barazesh et al. 2024) ──
     "CDHIT_THRESHOLD": "0.80",
@@ -183,7 +187,7 @@ os.makedirs("/content/blast_dbs", exist_ok=True)
 
 # Start uvicorn
 backend_proc = subprocess.Popen(
-    [f"{VENV}/bin/python", "-m", "uvicorn", "app.main:app",
+    [PYTHON, "-m", "uvicorn", "app.main:app",
      "--host", "0.0.0.0", "--port", str(BACKEND_PORT)],
     cwd=f"{WORKDIR}/backend",
     env=env,
