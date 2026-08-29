@@ -2526,11 +2526,12 @@ async def run_11_2(session: dict, job, step) -> dict:
                         "or configure SWISS-MODEL with a valid CoreAPI token."
                     ),
                 ) from exc
+            local_available = esmfold._local_esmfold_available()
             raw_input = {
                 "sequence": mev_seq,
                 "source": "real",
                 "provider": "ESMFold",
-                "method": "ESMFold public API",
+                "method": "ESMFold local (T4 GPU)" if local_available else "ESMFold public API",
                 "modelFormat": "pdb",
                 "coordinateText": coordinate_text,
             }
