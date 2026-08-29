@@ -268,7 +268,7 @@ ENV_VARS = {
     "MEV_STEP_TICK_MS": "300",
     "MEV_BLAST_DB_CACHE": "/content/blast_dbs",
     "MEV_VFDB_CACHE": "/content/blast_dbs/vfdb",
-    "PSORTB_BIN": "/usr/local/miniconda/bin/psortb",
+    "PSORTB_BIN": "/usr/local/bin/psortb",
 }
 
 for key, value in ENV_VARS.items():
