@@ -115,7 +115,7 @@ export default function PhaseDetailPage() {
       {phaseNo === 8 && <CoverageBlock phase={phase} />}
       {phaseNo === 9 && <ConstructBlock phase={phase} />}
       {phaseNo === 10 && <ValidationBlock phase={phase} />}
-      {phaseNo === 11 && <StructureBlock phase={phase} job={job} />}
+      {phaseNo === 11 && <StructureBlock phase={phase} />}
       {phaseNo === 14 && <ImmuneSimBlock phase={phase} />}
 
       {/* Navigation */}
@@ -381,7 +381,7 @@ function ValidationBlock({ phase }: { phase: Phase }) {
 }
 
 /** Phase 11 — MEV 3D structure validation (Ramachandran / ERRAT / ProSA). */
-function StructureBlock({ phase, job }: { phase: Phase; job: Job }) {
+function StructureBlock({ phase }: { phase: Phase }) {
   const step112 = phase.steps.find((s) => s.id === "11-2");
   const rama = stepResult(phase, "11-3");
   const errat = stepResult(phase, "11-4");

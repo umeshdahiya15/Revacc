@@ -13,7 +13,6 @@ import type { Step } from "@/types";
 
 export function StepRow({
   step,
-  jobId,
   onRetry,
   onSkip,
   onStop,
@@ -21,7 +20,6 @@ export function StepRow({
   showTool = true,
 }: {
   step: Step;
-  jobId: string;
   onRetry?: (step: Step) => void;
   onSkip?: (step: Step) => void;
   onStop?: () => void;

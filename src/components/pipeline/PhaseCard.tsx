@@ -140,7 +140,6 @@ export function PhaseCard({
                 <StepRow
                   key={step.id}
                   step={step}
-                  jobId={jobId}
                   onRetry={onRetry}
                   onSkip={onSkip}
                   onStop={onStop}
