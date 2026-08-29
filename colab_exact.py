@@ -27,6 +27,18 @@ import os, sys, subprocess, time, json, urllib.request
 PYTHON = sys.executable  # /usr/bin/python3
 print(f"Using Python: {PYTHON}")
 
+# Read GitHub token from Colab secrets
+try:
+    from google.colab import userdata
+    GITHUB_TOKEN = userdata.get('GITHUB_TOKEN')
+except Exception:
+    GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', '')
+
+if not GITHUB_TOKEN:
+    print("ERROR: Set GITHUB_TOKEN in Colab Secrets (left panel → key icon)")
+    sys.exit(1)
+print(f"GitHub token loaded ({len(GITHUB_TOKEN)} chars)")
+
 def sh(cmd):
     """Run a shell command. Returns exit code."""
     print(f"\n>>> {cmd}")
@@ -61,9 +73,11 @@ if os.path.exists(f"{WORKDIR}/.git"):
     print("Repository already cloned, pulling latest...")
     sh(f"cd {WORKDIR} && git pull origin main")
 else:
-    sh(f"git clone {REPO_URL} {WORKDIR}")
+    # Use token for authentication
+    auth_url = REPO_URL.replace("https://", f"https://{GITHUB_TOKEN}@")
+    sh(f"git clone {auth_url} {WORKDIR}")
     if not os.path.exists(f"{WORKDIR}/.git"):
-        print("ERROR: git clone failed")
+        print("ERROR: git clone failed — check GITHUB_TOKEN has repo access")
         sys.exit(1)
 
 # ─── STEP 3: PYTHON DEPS ────────────────────────────────────────────────────
