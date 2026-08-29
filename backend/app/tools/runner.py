@@ -43,7 +43,7 @@ StepRunner = Callable[[Job, Step], Awaitable[dict]]
 # essential representatives. The result is intentionally not rounded or
 # substituted with the paper's 1,336; release/proteome/reference differences
 # remain observable in the returned count.
-DEG_IDENTITY_THRESHOLD = float(os.environ.get("DEG_IDENTITY_THRESHOLD", "20"))
+DEG_IDENTITY_THRESHOLD = float(os.environ.get("DEG_IDENTITY_THRESHOLD", "40"))
 DEG_EVALUE_THRESHOLD = float(os.environ.get("DEG_EVALUE_THRESHOLD", "1e-5"))
 DEG_SCOPE = os.environ.get("DEG_SCOPE", "all").lower()
 

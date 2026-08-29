@@ -55,7 +55,7 @@ Every threshold has been calibrated to match Barazesh et al. 2024 exactly.
 | VFDB E-value | 1e-4 | `vfdb.py:30` | 1e-4 ✓ |
 | VFDB bit-score | > 100 | `vfdb.py:31,188` | 100.0 ✓ |
 | VFDB identity | 30% | `vfdb.py:29` | 30.0 ✓ |
-| DEG identity | 40% | `runner.py:36` | 40 ✓ |
+| DEG identity | 40% | `runner.py:46` | 40 ✓ |
 | DEG E-value | 1e-5 | `runner.py:37` | 1e-5 ✓ |
 | CTL MHC-I percentile | ≤ 2 | `models.py:97,140` | 2.0 ✓ |
 | CTL MHC-I lengths | 9, 10 | `iedb.py:30` | ("9","10") ✓ |

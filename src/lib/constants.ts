@@ -62,7 +62,7 @@ export const PIPELINE_PHASES: PhaseDefinition[] = [
     icon: Boxes,
     steps: [
       { id: "4-1", number: 1, name: "Physicochemical Properties", tool: "ProtParam" },
-      { id: "4-2", number: 2, name: "3D Structure Prediction", tool: "SwissModel" },
+      { id: "4-2", number: 2, name: "3D Structure Prediction", tool: "AlphaFold DB" },
       { id: "4-3", number: 3, name: "Structure Quality Validation", tool: "ERRAT" },
       { id: "4-4", number: 4, name: "Secondary Structure Prediction", tool: "SOPMA" },
     ],

@@ -1,4 +1,4 @@
-"""Canonical 14-phase / 41-step pipeline definition.
+"""Canonical 14-phase / 50-step pipeline definition.
 
 Mirrors `PIPELINE_PHASES` in the frontend `src/lib/constants.ts`.
 """
