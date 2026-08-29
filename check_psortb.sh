@@ -58,11 +58,13 @@ echo ""
 
 # Install system dependencies
 echo "[1/6] Installing system dependencies..."
+# Disable broken Colab apt source
+rm -f /etc/apt/sources.list.d/r2u.list 2>/dev/null || true
 apt-get update -qq 2>/dev/null
-apt-get install -y -qq bioperl hmmer prodigal perl libstring-perl wget 2>/dev/null || {
-    echo "  Using sudo for apt..."
-    sudo apt-get update -qq
-    sudo apt-get install -y -qq bioperl hmmer prodigal perl libstring-perl wget
+apt-get install -y -qq --no-install-recommends bioperl hmmer prodigal perl libstring-perl wget 2>/dev/null || {
+    echo "  Trying with sudo..."
+    sudo apt-get update -qq 2>/dev/null
+    sudo apt-get install -y -qq --no-install-recommends bioperl hmmer prodigal perl libstring-perl wget 2>/dev/null
 }
 
 # Create directories
