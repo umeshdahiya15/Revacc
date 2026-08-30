@@ -58,7 +58,19 @@ PYTHON = sys.executable
 TAXON_ID = "99287"
 PATHOGEN_NAME = "Streptococcus agalactiae"
 BACKEND_PORT = 8000
+# Get GitHub token from Colab Secrets
+github_token = None
+try:
+    from google.colab import userdata
+    github_token = userdata.get("GITHUB_TOKEN")
+except:
+    pass
+
 REPO_URL = "https://github.com/umeshdahiya15/Revacc.git"
+if github_token:
+    REPO_URL_AUTH = REPO_URL.replace("https://", f"https://{github_token}@")
+else:
+    REPO_URL_AUTH = REPO_URL
 WORKDIR = "/content/Revacc"
 
 # Read ngrok token from Colab Secrets
@@ -118,10 +130,10 @@ else:
     p("  Cloning repository...")
     if os.path.exists(WORKDIR):
         subprocess.run(["rm", "-rf", WORKDIR])
-    result = subprocess.run(["git", "clone", REPO_URL, WORKDIR], 
+    result = subprocess.run(["git", "clone", REPO_URL_AUTH, WORKDIR], 
                            capture_output=True, text=True)
     if result.returncode != 0:
-        p(f"  [WARN] Clone failed (repo may be private): {result.stderr[:200]}")
+        p(f"  [WARN] Clone failed: {result.stderr[:200]}")
         p("  Creating directory anyway...")
         os.makedirs(WORKDIR, exist_ok=True)
     p("  [OK] Ready")
