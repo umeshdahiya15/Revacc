@@ -114,11 +114,12 @@ if os.path.exists(f"{WORKDIR}/.git"):
 else:
     p("  Cloning repository...")
     # Remove any existing directory
-    run(["rm", "-rf", WORKDIR], capture_output=False)
+    subprocess.run(["rm", "-rf", WORKDIR])
     time.sleep(1)
-    result = run(["git", "clone", REPO_URL, WORKDIR], capture_output=False)
+    result = subprocess.run(["git", "clone", REPO_URL, WORKDIR], 
+                           capture_output=True, text=True)
     if result.returncode != 0:
-        p(f"  [ERROR] Clone failed: {result.stderr[:300] if result.stderr else 'unknown'}")
+        p(f"  [ERROR] Clone failed: {result.stderr[:500]}")
         sys.exit(1)
     p("  [OK] Cloned")
 
