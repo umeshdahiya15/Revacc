@@ -291,22 +291,44 @@ def blastp_sync(
                 tmp.write(f">{qid}\n{seq}\n")
         query_fasta = tmp.name
 
+    # Use DIAMOND if available (100x faster than BLASTp)
+    use_diamond = shutil.which("diamond") is not None
+    
     try:
-        proc = subprocess.run(
-            [
-                "blastp",
-                "-query", query_fasta,
-                "-db", db,
-                "-outfmt", "6 qseqid sseqid nident pident length slen evalue bitscore stitle sallseqid",
-                "-evalue", str(expect),
-                "-max_target_seqs", str(hitlist_size),
-                "-num_threads", str(min(4, os.cpu_count() or 1)),
-            ],
-            capture_output=True,
-            timeout=600,
-        )
-        if proc.returncode != 0:
-            raise LocalBlastError(f"blastp failed: {proc.stderr[:400]}")
+        if use_diamond:
+            # DIAMOND format: qseqid sseqid pident length qstart qend sstart send evalue bitscore
+            proc = subprocess.run(
+                [
+                    "diamond", "blastp",
+                    "--query", query_fasta,
+                    "--db", db,
+                    "--outfmt", "6 qseqid sseqid pident length qstart qend sstart send evalue bitscore stitle sallseqid",
+                    "--evalue", str(expect),
+                    "--max-target-seqs", str(hitlist_size),
+                    "--threads", str(min(4, os.cpu_count() or 1)),
+                    "--more-sensitive",
+                ],
+                capture_output=True,
+                timeout=120,
+            )
+            if proc.returncode != 0:
+                raise LocalBlastError(f"diamond failed: {proc.stderr[:400]}")
+        else:
+            proc = subprocess.run(
+                [
+                    "blastp",
+                    "-query", query_fasta,
+                    "-db", db,
+                    "-outfmt", "6 qseqid sseqid nident pident length slen evalue bitscore stitle sallseqid",
+                    "-evalue", str(expect),
+                    "-max_target_seqs", str(hitlist_size),
+                    "-num_threads", str(min(4, os.cpu_count() or 1)),
+                ],
+                capture_output=True,
+                timeout=600,
+            )
+            if proc.returncode != 0:
+                raise LocalBlastError(f"blastp failed: {proc.stderr[:400]}")
     finally:
         os.unlink(query_fasta)
 

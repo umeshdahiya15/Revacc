@@ -90,9 +90,9 @@ if not NGROK_AUTHTOKEN:
     p("       Get token free at: https://dashboard.ngrok.com/get-started/your-authtoken")
 
 # ============================================================================
-# STEP 1: System Dependencies
+# STEP 1: System Dependencies (GPU-Optimized)
 # ============================================================================
-header("STEP 1/7: System Dependencies")
+header("STEP 1/7: System Dependencies (GPU-Optimized)")
 
 run(["apt-get", "update", "-qq"], check=True)
 
@@ -105,6 +105,34 @@ for pkg in ["ncbi-blast+", "blast+", "git", "wget"]:
 r = run(["wget", "-q", "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64", "-O", "/usr/local/bin/cloudflared"])
 run(["chmod", "+x", "/usr/local/bin/cloudflared"])
 p(f"  [OK] cloudflared")
+
+# Install DIAMOND (100x faster than BLASTp)
+if not os.path.exists("/usr/local/bin/diamond"):
+    r = run(["wget", "-q", "https://github.com/bbuchfink/diamond/releases/download/v2.1.10/diamond-linux64.tar.gz", "-O", "/tmp/diamond.tar.gz"])
+    if r.returncode == 0:
+        run(["tar", "xzf", "/tmp/diamond.tar.gz", "-C", "/tmp/"])
+        run(["cp", "/tmp/diamond/diamond", "/usr/local/bin/diamond"])
+        run(["chmod", "+x", "/usr/local/bin/diamond"])
+        p("  [OK] DIAMOND (100x faster than BLASTp)")
+    else:
+        p("  [WARN] DIAMOND install failed")
+else:
+    p("  [OK] DIAMOND")
+
+# Install native CD-HIT (faster than Python implementation)
+if not os.path.exists("/usr/local/bin/cd-hit"):
+    r = run(["wget", "-q", "https://github.com/weizhongli/cdhit/releases/download/V4.8.1/cd-hit-v4.8.1-2019-0228.tar.gz", "-O", "/tmp/cdhit.tar.gz"])
+    if r.returncode == 0:
+        run(["tar", "xzf", "/tmp/cdhit.tar.gz", "-C", "/tmp/"])
+        cdhit_dir = glob.glob("/tmp/cd-hit-*")
+        if cdhit_dir:
+            run(["make", "-C", cdhit_dir[0]], capture_output=True)
+            run(["cp", f"{cdhit_dir[0]}/cd-hit", "/usr/local/bin/cd-hit"])
+            p("  [OK] CD-HIT native binary")
+    else:
+        p("  [WARN] CD-HIT install failed")
+else:
+    p("  [OK] CD-HIT")
 
 blastp = run(["which", "blastp"])
 if blastp.stdout.strip():
@@ -148,12 +176,20 @@ else:
     p("  Pipeline will use Phobius fallback for localization")
 
 # ============================================================================
-# STEP 3: Python Dependencies
+# STEP 3: Python Dependencies (GPU-Optimized)
 # ============================================================================
-header("STEP 3/7: Python Dependencies")
+header("STEP 3/7: Python Dependencies (GPU-Optimized)")
 
 # Upgrade pip
 run([PYTHON, "-m", "pip", "install", "-q", "--upgrade", "pip"], check=True)
+
+# Install PyTorch with CUDA for ESMFold GPU inference
+p("  Installing PyTorch with CUDA...")
+r = run([PYTHON, "-m", "pip", "install", "-q", "torch", "torchvision", "--index-url", "https://download.pytorch.org/whl/cu118"])
+if r.returncode == 0:
+    p("  [OK] PyTorch with CUDA")
+else:
+    p("  [WARN] PyTorch CUDA install failed, using CPU version")
 
 # Install required packages
 packages = [
@@ -164,15 +200,19 @@ packages = [
     "pydantic",
     "websockets",
     "pyngrok",
+    "fair-esm",  # ESMFold model
 ]
 
 result = run([PYTHON, "-m", "pip", "install", "-q"] + packages, check=True)
 p("  [OK] All packages installed")
 
 # Verify key imports
-verify = run([PYTHON, "-c", "import fastapi, uvicorn, httpx, Bio; print('OK')"])
+verify = run([PYTHON, "-c", "import fastapi, uvicorn, httpx, Bio, torch; print('OK')"])
 if "OK" in verify.stdout:
     p("  [OK] Import verification passed")
+    # Check CUDA availability
+    cuda_check = run([PYTHON, "-c", "import torch; print(f'CUDA: {torch.cuda.is_available()}, Device: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else \"CPU\"}')"])
+    p(f"  {cuda_check.stdout.strip()}")
 
 # ============================================================================
 # STEP 4: Apply Code Fixes
