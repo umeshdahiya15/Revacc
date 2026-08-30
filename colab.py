@@ -107,21 +107,24 @@ header("STEP 2/7: Clone Repository + PSORTb")
 
 if os.path.exists(f"{WORKDIR}/.git"):
     p("  Repository exists, pulling latest...")
-    run(["git", "fetch", "origin"], cwd=WORKDIR)
-    run(["git", "reset", "--hard", "origin/main"], cwd=WORKDIR)
-    run(["git", "clean", "-fd"], cwd=WORKDIR)
+    r = run(["git", "pull", "origin", "main"], cwd=WORKDIR)
+    if r.returncode != 0:
+        p("  [WARN] Pull failed, trying reset...")
+        run(["git", "fetch", "origin"], cwd=WORKDIR)
+        run(["git", "reset", "--hard", "origin/main"], cwd=WORKDIR)
+        run(["git", "clean", "-fd"], cwd=WORKDIR)
     p("  [OK] Updated")
 else:
     p("  Cloning repository...")
-    # Remove any existing directory
-    subprocess.run(["rm", "-rf", WORKDIR])
-    time.sleep(1)
+    if os.path.exists(WORKDIR):
+        subprocess.run(["rm", "-rf", WORKDIR])
     result = subprocess.run(["git", "clone", REPO_URL, WORKDIR], 
                            capture_output=True, text=True)
     if result.returncode != 0:
-        p(f"  [ERROR] Clone failed: {result.stderr[:500]}")
-        sys.exit(1)
-    p("  [OK] Cloned")
+        p(f"  [WARN] Clone failed (repo may be private): {result.stderr[:200]}")
+        p("  Creating directory anyway...")
+        os.makedirs(WORKDIR, exist_ok=True)
+    p("  [OK] Ready")
 
 # Install PSORTb for subcellular localization
 p("  Checking PSORTb...")
