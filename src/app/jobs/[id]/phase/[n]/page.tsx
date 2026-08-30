@@ -112,6 +112,7 @@ export default function PhaseDetailPage() {
       <PhaseSteps phase={phase} />
 
       {/* Phase-specific details from step results (all from the live job record) */}
+      {phaseNo === 2 && <PsortbBlock phase={phase} />}
       {phaseNo === 8 && <CoverageBlock phase={phase} />}
       {phaseNo === 9 && <ConstructBlock phase={phase} />}
       {phaseNo === 10 && <ValidationBlock phase={phase} />}
@@ -250,6 +251,122 @@ function CoverageBlock({ phase }: { phase: Phase }) {
                 <p className="text-lg font-bold tabular-nums text-foreground">{r.coverage.toFixed(2)}%</p>
               </div>
             ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function PsortbBlock({ phase }: { phase: Phase }) {
+  const psortbStep = phase.steps.find((s) => s.id === "2-2");
+  const result = psortbStep?.result as Record<string, unknown> | undefined;
+  if (!result) return null;
+
+  const locCounts = result.localization_counts as Record<string, number> | undefined;
+  const surfaceCount = typeof result.surface_exposed_count === "number" ? result.surface_exposed_count : null;
+  const totalAnalyzed = typeof result.total_analyzed === "number" ? result.total_analyzed : null;
+  const method = typeof result.method === "string" ? result.method : null;
+  const classifications = Array.isArray(result.classifications) ? (result.classifications as unknown[]) : [];
+  const prov = result.provenance as Record<string, unknown> | undefined;
+
+  const locEntries: [string, number][] = locCounts
+    ? (Object.entries(locCounts).map(([k, v]): [string, number] => [k, Number(v)]).sort((a, b) => b[1] - a[1]))
+    : [];
+  const maxCount = locEntries.length > 0 ? locEntries[0][1] : 1;
+  const surfaceProteins = classifications.filter((c) => (c as Record<string, unknown>).surface_exposed);
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Subcellular Localization (PSORTb)</CardTitle>
+        {method && <p className="text-[11px] text-muted-foreground">Method: {method}</p>}
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          {totalAnalyzed != null && (
+            <div className="rounded-md border border-border p-2">
+              <p className="text-[11px] font-medium text-muted-foreground">Total Analyzed</p>
+              <p className="text-xl font-bold tabular-nums text-foreground">{totalAnalyzed}</p>
+            </div>
+          )}
+          {surfaceCount != null && (
+            <div className="rounded-md border border-primary/30 bg-primary/5 p-2">
+              <p className="text-[11px] font-medium text-muted-foreground">Surface-exposed</p>
+              <p className="text-xl font-bold tabular-nums text-primary">{surfaceCount}</p>
+            </div>
+          )}
+          {totalAnalyzed != null && surfaceCount != null && totalAnalyzed > 0 && (
+            <div className="rounded-md border border-border p-2">
+              <p className="text-[11px] font-medium text-muted-foreground">Surface %</p>
+              <p className="text-xl font-bold tabular-nums text-foreground">
+                {((surfaceCount / totalAnalyzed) * 100).toFixed(1)}%
+              </p>
+            </div>
+          )}
+        </div>
+
+        {locEntries.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">Localization Distribution</p>
+            <div className="space-y-1.5">
+              {locEntries.map(([loc, count]) => (
+                <div key={loc} className="flex items-center gap-2">
+                  <span className="w-36 truncate text-[11px] text-muted-foreground">{loc}</span>
+                  <div className="flex-1 overflow-hidden rounded-full bg-muted h-2">
+                    <div
+                      className="h-full rounded-full bg-primary"
+                      style={{ width: `${(count / maxCount) * 100}%` }}
+                    />
+                  </div>
+                  <span className="w-8 text-right text-[11px] font-medium tabular-nums text-foreground">{count}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {surfaceProteins.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">
+              Surface-exposed Proteins ({surfaceProteins.length})
+            </p>
+            <div className="max-h-48 overflow-auto rounded-md border">
+              <table className="w-full text-[11px]">
+                <thead className="sticky top-0 bg-muted">
+                  <tr>
+                    <th className="p-1.5 text-left font-medium">UniProt</th>
+                    <th className="p-1.5 text-left font-medium">Name</th>
+                    <th className="p-1.5 text-left font-medium">Localization</th>
+                    <th className="p-1.5 text-right font-medium">Score</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {surfaceProteins.slice(0, 50).map((c, i) => {
+                    const rec = c as Record<string, unknown>;
+                    return (
+                      <tr key={i} className="border-t">
+                        <td className="p-1.5 font-mono">{String(rec.uniprotId ?? "")}</td>
+                        <td className="p-1.5 truncate max-w-[120px]">{String(rec.name ?? "")}</td>
+                        <td className="p-1.5">{String(rec.localization ?? "")}</td>
+                        <td className="p-1.5 text-right tabular-nums">
+                          {typeof rec.score === "number" ? rec.score.toFixed(2) : "\u2014"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {prov && (
+          <div className="rounded-md bg-muted/50 p-2">
+            <p className="text-[10px] text-muted-foreground">
+              Status: {prov.status === "real" ? "Real prediction" : "Partial"}
+              {method ? ` \u00b7 ${method}` : ""}
+            </p>
           </div>
         )}
       </CardContent>
