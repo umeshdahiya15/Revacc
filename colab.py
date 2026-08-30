@@ -113,6 +113,9 @@ if os.path.exists(f"{WORKDIR}/.git"):
     p("  [OK] Updated")
 else:
     p("  Cloning repository...")
+    if os.path.exists(WORKDIR):
+        import shutil
+        shutil.rmtree(WORKDIR)
     run(["git", "clone", REPO_URL, WORKDIR], check=True)
     p("  [OK] Cloned")
 
