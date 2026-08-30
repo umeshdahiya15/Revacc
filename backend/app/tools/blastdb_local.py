@@ -303,6 +303,7 @@ def blastp_sync(
                 "-num_threads", str(min(4, os.cpu_count() or 1)),
             ],
             capture_output=True,
+            timeout=600,
         )
         if proc.returncode != 0:
             raise LocalBlastError(f"blastp failed: {proc.stderr[:400]}")

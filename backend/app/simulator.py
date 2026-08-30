@@ -175,14 +175,28 @@ class Engine:
     async def _run(self) -> None:
         await asyncio.sleep(0.2)
         while not self._stopping:
-            await self._tick()
+            try:
+                await self._tick()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                import traceback
+                print(f"[ENGINE] tick error (continuing): {exc}")
+                traceback.print_exc()
             await asyncio.sleep(TICK_MS / 1000)
 
     async def _tick(self) -> None:
         for job in repo.list():
             if job.status != "running":
                 continue
-            await self._advance(job)
+            try:
+                await self._advance(job)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                import traceback
+                print(f"[ENGINE] advance error for job {job.id}: {exc}")
+                traceback.print_exc()
 
     async def _advance(self, job: Job) -> None:
         job = repo.get(job.id)
@@ -197,7 +211,10 @@ class Engine:
         phase_no, step = target
 
         if step.status == "pending":
-            await self._emit(job.id, "step_started", phase_no, step.number, step.tool, percent=5)
+            try:
+                await self._emit(job.id, "step_started", phase_no, step.number, step.tool, percent=5)
+            except Exception:
+                pass
 
             # Real tool integration: run the registered tool, or pause
             # gracefully if it fails (the frontend surfaces the error banner).
@@ -207,14 +224,20 @@ class Engine:
                 step.status = "running"
                 step.percent = 5
                 step.startedAt = _now_iso()
-                await self._refresh(job)
+                try:
+                    await self._refresh(job)
+                except Exception:
+                    pass
                 await self._run_tool(job, phase_no, step)
                 return
 
             step.status = "running"
             step.percent = 5
             step.startedAt = _now_iso()
-            await self._refresh(job)
+            try:
+                await self._refresh(job)
+            except Exception:
+                pass
             return
 
         if step.status == "running":
@@ -224,22 +247,31 @@ class Engine:
                 await self._run_tool(job, phase_no, step)
                 return
             step.percent = min(92, (step.percent or 0) + 14 + (phase_no % 3))
-            await self._emit(job.id, "step_progress", phase_no, step.number, step.tool, percent=step.percent)
+            try:
+                await self._emit(job.id, "step_progress", phase_no, step.number, step.tool, percent=step.percent)
+            except Exception:
+                pass
             if step.percent >= 90:
                 step.status = "success"
                 step.percent = 100
                 step.duration = 2 + (phase_no % 4) + (step.number % 3)
                 step.completedAt = _now_iso()
-                await self._emit(
-                    job.id,
-                    "step_completed",
-                    phase_no,
-                    step.number,
-                    step.tool,
-                    duration=step.duration,
-                    summary={"tool": step.tool},
-                )
-            await self._refresh(job)
+                try:
+                    await self._emit(
+                        job.id,
+                        "step_completed",
+                        phase_no,
+                        step.number,
+                        step.tool,
+                        duration=step.duration,
+                        summary={"tool": step.tool},
+                    )
+                except Exception:
+                    pass
+            try:
+                await self._refresh(job)
+            except Exception:
+                pass
             return
 
     async def _refresh(self, job: Job) -> None:
