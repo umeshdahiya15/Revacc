@@ -296,7 +296,7 @@ def blastp_sync(
     
     try:
         if use_diamond:
-            # DIAMOND format: qseqid sseqid pident length qstart qend sstart send evalue bitscore
+            # DIAMOND format: qseqid sseqid pident length qstart qend sstart send evalue bitscore stitle sallseqid
             proc = subprocess.run(
                 [
                     "diamond", "blastp",
@@ -312,8 +312,9 @@ def blastp_sync(
                 timeout=120,
             )
             if proc.returncode != 0:
-                raise LocalBlastError(f"diamond failed: {proc.stderr[:400]}")
-        else:
+                # Fall back to BLASTp
+                use_diamond = False
+        if not use_diamond:
             proc = subprocess.run(
                 [
                     "blastp",
@@ -337,17 +338,32 @@ def blastp_sync(
         parts = line.split("\t")
         if len(parts) < 10:
             continue
-        qid, sseqid, sallseqid = parts[0], parts[1], parts[9]
-        # nident (col 3) is the raw count of identical residues, matching the
-        # remote client's Hsp_identity; length (col 5) is the alignment span.
-        nident = int(float(parts[2]))
-        align_length = int(float(parts[4]))
+        qid, sseqid, sallseqid = parts[0], parts[1], parts[9] if len(parts) > 9 else parts[1]
+        
+        if use_diamond:
+            # DIAMOND columns: qseqid sseqid pident length qstart qend sstart send evalue bitscore stitle sallseqid
+            pident = float(parts[2])
+            align_length = int(float(parts[3]))
+            evalue = float(parts[8])
+            bitscore = float(parts[9])
+            title = parts[10] if len(parts) > 10 else sseqid
+            nident = int(align_length * pident / 100)
+            slen = int(float(parts[3]))  # approximate
+        else:
+            # BLASTp columns: qseqid sseqid nident pident length slen evalue bitscore stitle sallseqid
+            nident = int(float(parts[2]))
+            align_length = int(float(parts[4]))
+            slen = int(float(parts[5]))
+            evalue = float(parts[6])
+            bitscore = float(parts[7])
+            title = parts[8] or sseqid
+        
         accession = (sseqid or sallseqid or "").split("|")[-1]
         hit = ncbiblast.BlastHit(
             hit_id=sseqid,
             accession=accession,
-            title=parts[8] or sseqid,
-            length=int(float(parts[5])),
+            title=title or sseqid,
+            length=slen,
             identity=nident,
             positive=nident,
             align_length=align_length,
