@@ -113,10 +113,13 @@ if os.path.exists(f"{WORKDIR}/.git"):
     p("  [OK] Updated")
 else:
     p("  Cloning repository...")
-    if os.path.exists(WORKDIR):
-        import shutil
-        shutil.rmtree(WORKDIR)
-    run(["git", "clone", REPO_URL, WORKDIR], check=True)
+    # Remove any existing directory
+    run(["rm", "-rf", WORKDIR], capture_output=False)
+    time.sleep(1)
+    result = run(["git", "clone", REPO_URL, WORKDIR], capture_output=False)
+    if result.returncode != 0:
+        p(f"  [ERROR] Clone failed: {result.stderr[:300] if result.stderr else 'unknown'}")
+        sys.exit(1)
     p("  [OK] Cloned")
 
 # Install PSORTb for subcellular localization
