@@ -744,7 +744,7 @@ function funnelData(job: Job): { label: string; count: number | null; evidence: 
     proteins: "1-1",
     redundant: "1-2",
     essential: "2-1",
-    surface_exposed: "2-2",
+    surface_exposed: "2-4",
     virulence_factors: "3-3",
     targets: "3-4",
     "mhc-i": "5-1",
@@ -780,8 +780,8 @@ function funnelData(job: Job): { label: string; count: number | null; evidence: 
   if (isObj(r12)) add("Non-redundant", num(r12.nonRedundant), "1-2");
   const r21 = stepById(job, "2-1")?.result;
   if (isObj(r21)) add("Essential", num(r21.essential) ?? num(r21.count), "2-1");
-  const r22 = stepById(job, "2-2")?.result;
-  if (isObj(r22)) add("Surface-exposed", num(r22.surface_exposed_count) ?? num(r22.count), "2-2");
+  const r24 = stepById(job, "2-4")?.result;
+  if (isObj(r24)) add("Surface-exposed", num(r24.surface_exposed_count) ?? num(r24.count), "2-4");
   const r31 = stepById(job, "3-1")?.result;
   if (isObj(r31)) add("Non-allergenic", num(r31.non_allergen_count) ?? num(r31.total_analyzed), "3-1");
   const r32 = stepById(job, "3-2")?.result;

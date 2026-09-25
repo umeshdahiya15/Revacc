@@ -238,6 +238,7 @@ def _build_db(fasta_path: str, name: str) -> str:
         ["makeblastdb", "-in", fasta_path, "-dbtype", "prot", "-out", out],
         capture_output=True,
         text=True,
+        errors="replace",
     )
     if proc.returncode != 0:
         raise LocalBlastError(f"makeblastdb failed for {name}: {proc.stderr[:400]}")

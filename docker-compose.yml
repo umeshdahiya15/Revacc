@@ -1,71 +1,16 @@
-version: "3.9"
+version: "3.8"
 
 services:
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: mev
-      POSTGRES_PASSWORD: mev
-      POSTGRES_DB: mev
-    volumes:
-      - pg_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-
-  api:
+  revacc:
+    image: umeshdahiya01/revacc:latest
     build:
       context: .
       dockerfile: Dockerfile
-    depends_on:
-      - postgres
-      - redis
-    environment:
-      - MEV_DATABASE_URL=postgresql+asyncpg://mev:mev@postgres:5432/mev
-      - REDIS_URL=redis://redis:6379/0
-      - EBI_EMAIL=mev-pipeline@example.com
-      - NCBI_EMAIL=mev-pipeline@example.com
-      - MEV_VFDB_CACHE=/tmp/mev-vfdb
-      - MEV_API_CACHE=/tmp/mev-api-cache
     ports:
+      - "3000:3000"
       - "8000:8000"
-    volumes:
-      - ./backend:/app
-      - mev_cache:/tmp/mev
-
-  worker:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    depends_on:
-      - postgres
-      - redis
-      - api
     environment:
-      - MEV_DATABASE_URL=postgresql+asyncpg://mev:mev@postgres:5432/mev
-      - REDIS_URL=redis://redis:6379/0
-      - EBI_EMAIL=mev-pipeline@example.com
-      - NCBI_EMAIL=mev-pipeline@example.com
-      - MEV_VFDB_CACHE=/tmp/mev-vfdb
-    command: celery -A app.worker worker --loglevel=info
-    volumes:
-      - ./backend:/app
-      - mev_cache:/tmp/mev
-
-  nginx:
-    image: nginx:1.27-alpine
-    depends_on:
-      - api
-    ports:
-      - "80:80"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/static:/usr/share/nginx/html/static:ro
-
-volumes:
-  pg_data:
-  mev_cache:
+      - MEV_STEP_TICK_MS=650
+      - MEV_CORS_ORIGINS=*
+    container_name: revacc-pipeline
+    restart: unless-stopped

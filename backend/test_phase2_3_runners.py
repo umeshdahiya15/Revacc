@@ -664,7 +664,7 @@ class TestPhase4_11LocalRunners(unittest.TestCase):
 
         asyncio.run(_test())
 
-    def test_cimmsim_local_empty(self):
+    def test_cimmsim_local_ode_completes_without_external_service(self):
         import asyncio
         from app.tools.runner_additions import run_14_1
 
@@ -672,10 +672,12 @@ class TestPhase4_11LocalRunners(unittest.TestCase):
             session = self._make_session()
             job = MagicMock(id="test")
             step = MagicMock(id="14-1", status="pending")
-            with self.assertRaises(ToolUnavailableError) as ctx:
-                await run_14_1(session, job, step)
-            self.assertIn("C-ImmSim", str(ctx.exception))
-            self.assertIn("local ODE model is not used", str(ctx.exception))
+            # Phase 14-1 runs the local ODE immune model when the external
+            # C-ImmSim service is not attached; it must complete, not pause.
+            result = await run_14_1(session, job, step)
+            self.assertIn("local ODE model", result["message"])
+            self.assertEqual(result["provenance"]["status"], "local-analysis")
+            self.assertIn("immune_simulation", session)
 
         asyncio.run(_test())
 
@@ -808,8 +810,11 @@ class TestPhase4_1ProtParam(unittest.TestCase):
             session = {"mev_construct": {"sequence": "ACDEFGHIKLMNPQRSTVWY"}}
             job = MagicMock(id="test")
             step = MagicMock(id="11-2", status="pending")
-            with self.assertRaises(ToolUnavailableError) as ctx:
-                await run_11_2(session, job, step)
+            # Pin the provider: the default (esmfold) predicts novel sequences
+            # directly; alphafold_db requires an attached external structure.
+            with patch.dict(os.environ, {"MEV_STRUCTURE_PROVIDER": "alphafold_db"}):
+                with self.assertRaises(ToolUnavailableError) as ctx:
+                    await run_11_2(session, job, step)
             self.assertIn("novel MEV construct", str(ctx.exception))
             self.assertIn("validated external structure", str(ctx.exception))
 

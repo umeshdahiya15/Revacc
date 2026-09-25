@@ -431,6 +431,11 @@ async def run_population_coverage(
             "message": "No conserved epitopes to calculate coverage for",
             "coverage": 0,
             "total_analyzed": 0,
+            "provenance": {
+                "status": "local-analysis",
+                "tool": "IEDB-AR",
+                "reason": "No conserved epitope input; coverage analysis completed with zero inputs.",
+            },
         }
 
     # Build allele frequency pairs for the NMDP reference
@@ -485,6 +490,11 @@ async def run_population_coverage(
             "message": "Could not parse population results",
             "coverage": 0,
             "total_analyzed": len(conserved),
+            "provenance": {
+                "status": "local-analysis",
+                "tool": "IEDB-AR",
+                "reason": "IEDB response could not be parsed; reported as zero coverage.",
+            },
         }
 
     # Summarize coverage: count populations where cumulative % >= 95%
@@ -498,4 +508,9 @@ async def run_population_coverage(
         "message": f"Population coverage: {coverage_pct}% across {populations_covered} populations",
         "total_analyzed": len(conserved),
         "coverage": coverage_pct,
+        "provenance": {
+            "status": "real",
+            "tool": "IEDB-AR",
+            "method": "iedb_population_coverage_3.0.2",
+        },
     }

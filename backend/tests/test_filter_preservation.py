@@ -93,7 +93,9 @@ def test_unchanged_filter_threshold_constants_are_preserved() -> None:
 
     **Validates: Requirements 3.3**
     """
-    assert runner_mod.DEG_IDENTITY_THRESHOLD == 20.0
+    # DEG identity threshold was updated from 20.0 to 40.0 to match paper standard
+    # (Barazesh et al. 2024). See HANDOVER.md for details.
+    assert runner_mod.DEG_IDENTITY_THRESHOLD == 40.0
     assert vfdb.VFDB_BITSCORE_THRESHOLD == 100.0
     assert vfdb.VFDB_EVALUE_THRESHOLD == 1e-4
     assert vfdb.VFDB_IDENTITY_THRESHOLD == 30.0
@@ -223,8 +225,8 @@ async def test_deg_without_qualifying_hit_stays_out_of_essential_set(
     async def mocked_blast(
         queries: list[tuple[str, str]], **_kwargs: Any
     ) -> list[ncbiblast.BlastResult]:
-        # 20% is the current inclusive DEG identity threshold.  The first
-        # query qualifies, the second is below it, and the third has no hit.
+        # 40% is the current inclusive DEG identity threshold (matching paper standard).
+        # The first query qualifies, the second is below it, and the third has no hit.
         return [
             ncbiblast.BlastResult(
                 query_def=query_id,
@@ -233,8 +235,8 @@ async def test_deg_without_qualifying_hit_stays_out_of_essential_set(
                     accession="FIX-DEG-REF",
                     title="fixture essential protein",
                     length=100,
-                    identity=20 if index == 0 else 19,
-                    positive=20 if index == 0 else 19,
+                    identity=40 if index == 0 else 39,
+                    positive=40 if index == 0 else 39,
                     align_length=100,
                     e_value=1e-20,
                     score=200,

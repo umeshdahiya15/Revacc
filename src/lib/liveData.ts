@@ -106,7 +106,7 @@ export function liveMetrics(job: Job): LiveMetric[] {
   const specs: [string, string, string, string[]][] = [
     ["reference-proteome", "Reference proteome", "1-1", ["proteins", "total", "count"]],
     ["essential", "Essential proteins", "2-1", ["essential", "essential_count", "count"]],
-    ["surface-exposed", "Surface-exposed", "2-2", ["surface_exposed_count", "count"]],
+    ["surface-exposed", "Surface-exposed", "2-4", ["surface_exposed_count", "count"]],
     ["virulence", "Virulence factors", "3-3", ["virulence_count", "count"]],
     ["human-homology", "Non-human-homolog candidates", "3-4", ["non_homologous_count", "count"]],
     ["population-coverage", "Population coverage", "8-1", ["coverage"]],

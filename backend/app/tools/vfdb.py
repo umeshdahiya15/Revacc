@@ -103,6 +103,7 @@ def _build_db(fasta_path: str, cache_dir: str) -> str:
         check=True,
         capture_output=True,
         text=True,
+        errors="replace",
     )
     return db_name
 

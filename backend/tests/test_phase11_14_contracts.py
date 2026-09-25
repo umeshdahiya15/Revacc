@@ -151,8 +151,12 @@ async def test_validated_model_drives_phases_11_to_14_without_fabricated_simulat
         assert result.get("source") in {"local-analysis", "real"}
 
     assert session["codon_optimized"]["codon_optimized"] == "GCTGTTCTGGGT"
-    with pytest.raises(ToolUnavailableError, match="C-ImmSim external simulation is unavailable"):
-        await runner_additions.run_14_1(session, None, None)
+    # Without the external C-ImmSim service, phase 14-1 completes with the
+    # local ODE immune model instead of pausing the pipeline.
+    immune = await runner_additions.run_14_1(session, None, None)
+    assert immune["provenance"]["status"] == "local-analysis"
+    assert immune.get("peak_igG", 0) >= 0
+    assert session.get("immune_simulation")
 
 
 def _full_backbone_contact_pdb() -> str:

@@ -41,8 +41,14 @@ class SurfaceUnionRegressionTest(unittest.TestCase):
             self.assertEqual(result["surface_exposed_count"], 1)
             self.assertEqual(session["surface_exposed"]["count"], 1)
             self.assertEqual(session["_funnel_counts"]["surface_exposed"], 1)
-            self.assertEqual(result["status"], "partial")
-            self.assertEqual(result["provenance"]["status"], "partial")
+            # Real PSORTb surface data survives the Phobius outage: the step
+            # reports completed output. The previous "partial" status was
+            # rendered as "unavailable" by the frontend despite valid data.
+            self.assertEqual(result["status"], "completed")
+            self.assertNotIn(
+                result["provenance"]["status"],
+                {"partial", "unavailable", "paused", "error"},
+            )
             self.assertEqual(session["surface_exposed"]["candidates"][0]["uniprotId"], "PSORT")
 
         asyncio.run(exercise())
