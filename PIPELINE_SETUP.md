@@ -1,310 +1,214 @@
-# Revacc Pipeline - Local Docker Setup Guide
+# Revacc Pipeline — Detailed Setup Guide (Docker)
 
-A complete guide to set up and run the Revacc reverse-vaccinology pipeline locally using Docker.
+The detailed companion to [START.md](START.md): what's inside the image, how to
+start it three different ways, configuration, API reference and troubleshooting.
 
-> **Looking for quick setup?** See [START.md](START.md) for the fastest way to get running!
-
-## Prerequisites
-
-### System Requirements
-
-- **Docker**: 20.10+ (Docker Desktop recommended)
-- **Docker Compose**: 2.0+
-- **Git**: For cloning the repository
-- **8GB RAM**: Recommended for running all services
-
-### Install Docker
-
-#### macOS
-1. Download Docker Desktop from [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/)
-2. Install and start Docker Desktop
-3. Verify installation: `docker --version`
-
-#### Linux (Ubuntu/Debian)
-```bash
-# Update package index
-sudo apt-get update
-
-# Install Docker
-sudo apt-get install docker.io docker-compose
-
-# Add your user to docker group
-sudo usermod -aG docker $USER
-
-# Log out and log back in, then verify
-docker --version
-docker-compose --version
-```
-
-#### Windows
-1. Download Docker Desktop from [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/)
-2. Install with WSL 2 backend enabled
-3. Verify installation: `docker --version`
+> **Quick path?** Use [START.md](START.md) (one-liner) or [QUICKSTART.md](QUICKSTART.md).
 
 ---
 
-## Quick Start (3 Steps)
+## 1. Prerequisites
 
-### Step 1: Clone the Repository
+- **Docker** 20.10+ — Docker Desktop (macOS/Windows) or Docker Engine (Linux)
+- **RAM**: 8 GB recommended while a pipeline is running
+- **Disk**: ~6 GB for the image (tools + baked reference databases)
+- **Git + Docker Compose**: only for the clone-and-run / build-from-source
+  methods. Docker Desktop ships Compose; on Linux see the install note in
+  `START.md`. The prebuilt-image methods need nothing but Docker.
+
+No Python, Node.js, PostgreSQL or Redis to install — everything runs inside the
+single container.
+
+---
+
+## 2. Starting the Pipeline
+
+### Method 1 — Prebuilt image (recommended)
+
+```bash
+docker pull umeshdahiya01/revacc:latest
+docker run -d --name revacc-pipeline -p 3000:3000 -p 8000:8000 umeshdahiya01/revacc:latest
+
+# Verify (~10 s after start)
+curl http://localhost:8000/api/health     # → {"status":"ok",...}
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3000   # → 200
+```
+
+### Method 2 — Clone + Docker Compose
 
 ```bash
 git clone https://github.com/umeshdahiya15/Revacc.git
 cd Revacc
+docker compose up -d
 ```
 
-### Step 2: Configure Environment
+`docker-compose.yml` starts the same single `revacc` service with ports 3000
+and 8000 mapped.
+
+### Method 3 — Build the image from source
 
 ```bash
-# Copy the example environment file
-cp .env.example .env
+git clone https://github.com/umeshdahiya15/Revacc.git
+cd Revacc
 
-# Edit .env if needed (optional for local development)
-# The defaults work for local Docker setup
+# Either with plain Docker:
+docker build -t revacc:local .
+docker run -d --name revacc-pipeline -p 3000:3000 -p 8000:8000 revacc:local
+
+# Or with Compose (build + run):
+docker compose up -d --build
 ```
 
-### Step 3: Start the Pipeline
-
-```bash
-# Build and start all services
-docker-compose up -d
-
-# Check if all services are running
-docker-compose ps
-```
-
-**That's it!** The pipeline is now running locally.
-
-> **Note:** First run may take 5-10 minutes to download and build the Docker image.
+The build installs BLAST+, the complete PSORTb runtime (perl 5.22, BioPerl,
+PSORTb modules, `pfscan`, legacy `blastall`) and bakes the DEG10, human and
+VFDB BLAST databases via `app/tools/prefetch_dbs.py`. A smoke-test layer runs
+PSORTb on real sequences during the build and **fails the build** if results
+regress, so a successful build guarantees a working PSORTb.
 
 ---
 
-## Access the Pipeline
+## 3. Access Points
 
-### Frontend (Web UI)
-- **URL**: http://localhost
-- **Description**: React-based dashboard for managing pipeline jobs
-
-### Backend API
-- **URL**: http://localhost:8000
-- **API Docs**: http://localhost:8000/docs (Interactive Swagger UI)
-- **Health Check**: http://localhost:8000/api/health
-
-### Services Overview
-
-| Service | Port | Description |
-|---------|------|-------------|
-| **Nginx** | 80 | Reverse proxy (entry point) |
-| **API** | 8000 | FastAPI backend |
-| **PostgreSQL** | 5432 | Database |
-| **Redis** | 6379 | Cache & task queue |
-| **Worker** | - | Celery background tasks |
+| Service | URL | Notes |
+|---------|-----|-------|
+| **Frontend** | http://localhost:3000 | Next.js dashboard (job creation, live progress, export) |
+| **Backend API** | http://localhost:8000 | FastAPI |
+| **API docs** | http://localhost:8000/docs | Interactive Swagger UI |
+| **Health** | http://localhost:8000/api/health | Returns `{"status":"ok",...}` |
+| **WebSocket** | ws://localhost:8000/ws/pipeline/{job_id} | Live step updates |
 
 ---
 
-## Using the Pipeline
+## 4. What's Inside the Image
 
-### 1. Open the Web UI
+| Component | Details |
+|-----------|---------|
+| **Frontend** | Next.js 14 production build, served on port 3000 |
+| **Backend** | FastAPI / Python 3.13, in-memory job store, port 8000 |
+| **BLAST+** | System `blastp`, `makeblastdb` |
+| **PSORTb 3.0** | Full offline runtime: perl 5.22 + BioPerl + PSORTb modules + static `pfscan` + legacy `blastall` and its NCBI lib closure; `psortb-adapter.sh` normalizes the CLI invocation |
+| **Reference DBs** | `/opt/mev-blastdb` (DEG10, reviewed human proteome) and `/opt/mev-vfdb` (VFDB) baked at build time |
+| **Clustering** | Local greedy identity clustering (cd-hit-equivalent algorithm in Python; a provenance note records when the native binary is absent) |
+| **Structure tools** | ESMFold / AlphaFold DB clients with local fallbacks |
 
-Navigate to http://localhost in your browser.
+### Offline vs. internet
 
-### 2. Create a New Job
+| Needs internet | Runs fully offline |
+|----------------|--------------------|
+| Phase 1: UniProt / NCBI proteome download | BLAST searches vs baked DEG10 / human / VFDB DBs |
+| Steps 5-1, 6-1: IEDB MHC binding (tools.iedb.org) | PSORTb localization (2-2) |
+| Step 2-4: EBI Phobius (bounded by a hard timeout; PSORTb positives retained regardless) | Clustering, VaxiJen, B-cell/T-cell epitope scoring, MEV assembly, population-coverage logic |
+| Phase 11: AlphaFold DB / SwissModel lookups (local fallbacks keep the run moving) | C-ImmSim local ODE immune model, toxicity/allergenicity filters |
 
-Click "Create Job" or use the API:
+A degraded external service can pause a step — the UI's **Resume** / **Retry**
+buttons continue the run when the service recovers (see START.md tips).
+
+---
+
+## 5. Using the Pipeline
+
+### Via the Web UI
+1. Open http://localhost:3000 → **Create Job**
+2. Enter pathogen name and taxon ID (e.g. `208435` for *S. agalactiae*) and
+   start the run
+3. Watch live progress (50 steps across 14 phases; a full run takes ~45–90 min)
+4. When finished: funnel, epitopes, MEV candidates; **Export report** downloads
+   the PDF (generated in the browser)
+
+### Via the API
 
 ```bash
-# Using curl
-curl -X POST http://localhost/api/jobs \
+# Create a job
+curl -X POST http://localhost:8000/api/jobs \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "My First Pipeline Run",
+    "name": "My Pipeline Run",
     "pathogenName": "Streptococcus agalactiae",
     "taxonId": 208435,
     "source": "pathogen",
     "realTools": true
   }'
-```
 
-### 3. Start the Pipeline
+# Start it (use the returned id)
+curl -X POST http://localhost:8000/api/jobs/{job_id}/start
 
-Click "Start" in the UI or use the API:
+# Status + progress
+curl http://localhost:8000/api/jobs/{job_id}
 
-```bash
-# Replace {job_id} with the actual job ID
-curl -X POST http://localhost/api/jobs/{job_id}/start
-```
+# Results
+curl http://localhost:8000/api/jobs/{job_id}/epitopes
 
-### 4. Monitor Progress
-
-- **Web UI**: Real-time progress bar and step details
-- **WebSocket**: Connect to `ws://localhost/ws/pipeline/{job_id}`
-- **API**: Check status with `GET /api/jobs/{job_id}`
-
-### 5. View Results
-
-Once complete, view results in the UI or via API:
-
-```bash
-# Get job details
-curl http://localhost/api/jobs/{job_id}
-
-# Get epitope predictions
-curl http://localhost/api/jobs/{job_id}/epitopes
-
-# Download PDF report
-curl http://localhost/api/jobs/{job_id}/report/pdf --output report.pdf
+# After a pause: resume the job, or retry/skip a single step
+curl -X POST http://localhost:8000/api/jobs/{job_id}/resume
+curl -X POST http://localhost:8000/api/jobs/{job_id}/steps/{step_id}/retry
 ```
 
 ---
 
-## Docker Compose Services
+## 6. Configuration
 
-### What's Included
+Set variables with `docker run -e NAME=value ...` or in the `environment:`
+block of `docker-compose.yml`, then recreate the container.
 
-```yaml
-services:
-  postgres:    # PostgreSQL 16 database
-  redis:       # Redis 7 cache
-  api:         # FastAPI backend (Python 3.13)
-  worker:      # Celery background worker
-  nginx:       # Nginx 1.27 reverse proxy
-```
+### Common
 
-### Service Details
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `MEV_STEP_TICK_MS` | `650` | UI/tick pacing (lower = snappier) |
+| `MEV_MAX_STEPS_PER_TICK` | `1` | Steps processed per tick |
+| `MEV_CORS_ORIGINS` | *(local only)* | Extra allowed browser origins (comma-separated) |
+| `NCBI_EMAIL` | example address | Contact for NCBI/UniProt requests |
+| `NCBI_API_KEY` | *(empty)* | Optional NCBI rate-limit key |
+| `EBI_EMAIL` | example address | Contact for EBI/Phobius requests |
+| `MEV_STRUCTURE_PROVIDER` | `esmfold` | `esmfold` \| `alphafold_db` \| `swissmodel` (structure source for phase 11) |
+| `MEV_PHOBIUS_CAP` | `0` | Cap on candidates sent to Phobius in 2-4 (`0` = full pool) |
 
-#### PostgreSQL (Database)
-- **Image**: postgres:16-alpine
-- **Port**: 5432
-- **Credentials**: mev/mev
-- **Data**: Persisted in `pg_data` volume
+### Advanced (threshold overrides)
 
-#### Redis (Cache)
-- **Image**: redis:7-alpine
-- **Port**: 6379
-- **Usage**: Task queue and caching
+`DEG_IDENTITY_THRESHOLD` (40), `DEG_EVALUE_THRESHOLD` (1e-5),
+`VFDB_IDENTITY_THRESHOLD` (30), `VFDB_EVALUE_THRESHOLD` (1e-4),
+`VFDB_BITSCORE_THRESHOLD` (100), `HUMAN_HOMOLOGY_IDENTITY` (0.30),
+`VAXIJEN_THRESHOLD` (0.50), `ALGPRED_THRESHOLD` (0.321),
+`BCELL_THRESHOLD` (0.5), `IFN_GAMMA_THRESHOLD` (0.45)
 
-#### API (Backend)
-- **Build**: From repository Dockerfile
-- **Port**: 8000 (internal)
-- **Features**: FastAPI, BioPython, BLAST+
+Cache directories (`MEV_BLAST_DB_CACHE`, `MEV_VFDB_CACHE`, `MEV_API_CACHE`)
+default to the baked `/opt/...` locations inside the image; override only if
+you mount your own databases.
 
-#### Worker (Task Queue)
-- **Build**: Same Dockerfile as API
-- **Command**: Celery worker
-- **Usage**: Background pipeline processing
-
-#### Nginx (Reverse Proxy)
-- **Image**: nginx:1.27-alpine
-- **Port**: 80 (external)
-- **Routes**: `/api` → API, `/ws` → WebSocket, `/` → Frontend
+> The repository's job store is **in-memory** — jobs survive a container
+> restart only while the process keeps them in memory; removing the container
+> starts clean. That is by design for local analysis (no database to install).
 
 ---
 
-## Common Commands
+## 7. Common Commands
 
-### Start Services
 ```bash
-# Start all services in background
-docker-compose up -d
+# Status
+docker ps --filter name=revacc-pipeline     # or: docker compose ps
 
-# Start with logs visible
-docker-compose up
+# Logs (follow)
+docker logs -f revacc-pipeline              # or: docker compose logs -f
 
-# Start specific service
-docker-compose up api
-```
+# Restart (recreates the API process; jobs in memory are lost)
+docker restart revacc-pipeline
 
-### Stop Services
-```bash
-# Stop all services
-docker-compose down
+# Stop and remove (image stays for the next run)
+docker rm -f revacc-pipeline                # or: docker compose down
 
-# Stop and remove volumes (fresh start)
-docker-compose down -v
-```
+# Fresh pull + start
+docker pull umeshdahiya01/revacc:latest
+docker run -d --name revacc-pipeline -p 3000:3000 -p 8000:8000 umeshdahiya01/revacc:latest
 
-### View Logs
-```bash
-# All services
-docker-compose logs
-
-# Specific service
-docker-compose logs api
-docker-compose logs worker
-
-# Follow logs in real-time
-docker-compose logs -f api
-```
-
-### Check Status
-```bash
-# List running containers
-docker-compose ps
-
-# Check API health
-curl http://localhost/api/health
-```
-
-### Rebuild Services
-```bash
-# Rebuild after code changes
-docker-compose build
-
-# Rebuild specific service
-docker-compose build api
-
-# Force rebuild without cache
-docker-compose build --no-cache api
+# Rebuild after source changes
+docker compose up -d --build                # or: docker build -t revacc:local .
 ```
 
 ---
 
-## Configuration
+## 8. Pipeline Thresholds
 
-### Environment Variables
-
-The `.env` file contains default configuration. Key variables:
-
-```bash
-# Database
-POSTGRES_USER=mev
-POSTGRES_PASSWORD=mev
-POSTGRES_DB=mev
-
-# API
-MEV_DATABASE_URL=postgresql+asyncpg://mev:mev@postgres:5432/mev
-REDIS_URL=redis://redis:6379/0
-
-# External APIs (optional)
-EBI_EMAIL=mev-pipeline@example.com
-NCBI_EMAIL=mev-pipeline@example.com
-```
-
-### Custom Configuration
-
-Edit the `.env` file to customize:
-
-```bash
-# Increase simulation speed (lower = faster)
-MEV_STEP_TICK_MS=300
-
-# Set your own contact email for external APIs
-NCBI_EMAIL=your-email@example.com
-
-# Add CORS origins for custom frontend
-MEV_CORS_ORIGINS=https://your-domain.com
-```
-
-After changes, restart services:
-```bash
-docker-compose down
-docker-compose up -d
-```
-
----
-
-## Pipeline Thresholds
-
-All thresholds are calibrated to match the published paper (Barazesh et al. 2024):
+Calibrated to Barazesh et al. 2024:
 
 | Parameter | Value | Description |
 |-----------|-------|-------------|
@@ -318,207 +222,104 @@ All thresholds are calibrated to match the published paper (Barazesh et al. 2024
 
 ---
 
-## Troubleshooting
+## 9. API Reference
 
-### Issue: Port already in use
-
-```bash
-# Check what's using port 80 or 8000
-lsof -i :80
-lsof -i :8000
-
-# Stop conflicting services
-sudo systemctl stop apache2  # or nginx
+```http
+GET    /api/health                                   # Health check
+GET    /api/activity                                 # Recent activity
+GET    /api/jobs                                     # List jobs
+POST   /api/jobs                                     # Create job
+GET    /api/jobs/{id}                                # Job status, phases, results
+POST   /api/jobs/{id}/start                          # Start pipeline
+POST   /api/jobs/{id}/pause                          # Pause pipeline
+POST   /api/jobs/{id}/resume                         # Resume after pause
+POST   /api/jobs/{id}/stop                           # Stop pipeline
+POST   /api/jobs/{id}/steps/{step}/retry             # Retry one step
+POST   /api/jobs/{id}/steps/{step}/skip              # Skip one step
+GET    /api/jobs/{id}/events                         # Event log
+GET    /api/jobs/{id}/epitopes                       # Predicted epitopes
+GET    /api/jobs/compare                             # Compare runs
+GET    /api/jobs/{id}/structure/requirements         # Structure needs
+POST   /api/jobs/{id}/structure                      # Provide a structure
 ```
 
-### Issue: Docker daemon not running
+WebSocket: `ws://localhost:8000/ws/pipeline/{job_id}` streams step updates.
 
-```bash
-# macOS: Start Docker Desktop
-# Linux: Start Docker service
-sudo systemctl start docker
-
-# Verify Docker is running
-docker info
-```
-
-### Issue: Build fails
-
-```bash
-# Clean build
-docker-compose down
-docker-compose build --no-cache
-docker-compose up -d
-```
-
-### Issue: API not responding
-
-```bash
-# Check API logs
-docker-compose logs api
-
-# Restart API service
-docker-compose restart api
-
-# Check health
-curl http://localhost/api/health
-```
-
-### Issue: Database connection error
-
-```bash
-# Check PostgreSQL logs
-docker-compose logs postgres
-
-# Restart database
-docker-compose restart postgres
-
-# Wait a few seconds, then check API
-sleep 5
-curl http://localhost/api/health
-```
-
-### Issue: Worker not processing tasks
-
-```bash
-# Check worker logs
-docker-compose logs worker
-
-# Restart worker
-docker-compose restart worker
-```
+> The PDF report is produced by the frontend (**Export report** button) —
+> there is no `/report` endpoint.
 
 ---
 
-## API Reference
-
-### Health Check
-```http
-GET /api/health
-```
-
-### Create Job
-```http
-POST /api/jobs
-Content-Type: application/json
-
-{
-  "name": "Job Name",
-  "pathogenName": "Streptococcus agalactiae",
-  "taxonId": 208435,
-  "source": "pathogen",
-  "realTools": true
-}
-```
-
-### Get Job
-```http
-GET /api/jobs/{job_id}
-```
-
-### Start Pipeline
-```http
-POST /api/jobs/{job_id}/start
-```
-
-### Pause Pipeline
-```http
-POST /api/jobs/{job_id}/pause
-```
-
-### Resume Pipeline
-```http
-POST /api/jobs/{job_id}/resume
-```
-
-### Get Epitopes
-```http
-GET /api/jobs/{job_id}/epitopes
-```
-
-### Download Report
-```http
-GET /api/jobs/{job_id}/report/pdf
-```
-
----
-
-## Data Persistence
-
-### Volumes
-
-Docker Compose creates two persistent volumes:
-
-1. **pg_data**: PostgreSQL database files
-2. **mev_cache**: Pipeline cache data
-
-### Backup
+## 10. Development Mode (contributors)
 
 ```bash
-# Backup database
-docker-compose exec postgres pg_dump -U mev mev > backup.sql
-
-# Restore database
-cat backup.sql | docker-compose exec -T postgres psql -U mev mev
-```
-
-### Fresh Start
-
-```bash
-# Remove all data and start fresh
-docker-compose down -v
-docker-compose up -d
-```
-
----
-
-## Development Mode
-
-### Hot Reloading
-
-For development with code changes:
-
-```bash
-# The API service mounts the backend directory
-# Changes to backend/ are reflected immediately
-
-# Edit backend code
-vim backend/app/main.py
-
-# API will auto-reload (if --reload is enabled)
-```
-
-### Frontend Development
-
-The Docker setup includes Nginx serving static files. For frontend development:
-
-```bash
-# Stop Docker services
-docker-compose down
-
-# Start backend only
+# Backend (hot reload)
 cd backend
+pip install -r requirements.txt
 python3 -m uvicorn app.main:app --reload --port 8000
 
-# In another terminal, start frontend dev server
-npm run dev
+# Frontend (another terminal)
+npm install
+npm run dev        # → http://localhost:3000
+```
 
-# Frontend will be at http://localhost:3000
+Run tests:
+
+```bash
+cd backend && pytest      # 219 tests
+npm test                  # frontend suite
 ```
 
 ---
 
-## Next Steps
+## 11. Troubleshooting
 
-1. **Explore the API**: Visit http://localhost:8000/docs
-2. **Run a test pipeline**: Create a job with taxonId 208435
-3. **View results**: Check the funnel and epitope predictions
-4. **Read the paper**: Barazesh et al. 2024, Nature Scientific Reports
+### Port already in use
+```bash
+lsof -i :3000
+lsof -i :8000
+# Stop the conflicting process, or map different host ports:
+docker run -d --name revacc-pipeline -p 3001:3000 -p 8001:8000 umeshdahiya01/revacc:latest
+```
+
+### Docker daemon not running
+```bash
+docker info            # if this fails: start Docker Desktop, or:
+sudo systemctl start docker
+```
+
+### Container exits immediately
+```bash
+docker logs revacc-pipeline
+```
+
+### Backend not healthy yet
+Wait ~10 seconds after start, then `curl http://localhost:8000/api/health`.
+Still down? `docker logs revacc-pipeline`.
+
+### A step paused during the run
+Usually an external service (IEDB, EBI Phobius, UniProt) was unreachable or
+rate-limited. Check `docker logs revacc-pipeline`, then use **Resume** (job) or
+**Retry** (single step) in the UI once the service is back.
+
+### Build fails (Method 3)
+```bash
+docker compose down
+docker compose build --no-cache
+# The build includes a PSORTb smoke test — read the failing layer's output.
+```
+
+### Want a clean slate
+```bash
+docker rm -f revacc-pipeline
+docker run -d --name revacc-pipeline -p 3000:3000 -p 8000:8000 umeshdahiya01/revacc:latest
+```
 
 ---
 
-## Support
+## 12. Support
 
-- **GitHub**: https://github.com/umeshdahiya15/Revacc
+- **Setup guide**: [START.md](START.md)
+- **Repository**: https://github.com/umeshdahiya15/Revacc
 - **Issues**: https://github.com/umeshdahiya15/Revacc/issues
-- **Documentation**: See `HANDOVER.md` for technical details
+- **Technical background**: [HANDOVER.md](HANDOVER.md)

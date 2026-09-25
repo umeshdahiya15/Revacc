@@ -2,159 +2,72 @@
 
 ## Executive Summary
 
-The Revacc reverse-vaccinology pipeline has been thoroughly reviewed and all critical issues have been resolved. The pipeline is now fully functional with **130/130 tests passing**.
+The Revacc reverse-vaccinology pipeline is fully functional and distributed as a
+**single unified Docker image** containing the frontend, backend and all analysis
+tools. **219/219 backend tests pass.**
+
+- **Run it**: see [`START.md`](START.md) (one-liner, `docker run`, or clone-and-build)
+- **Image**: `umeshdahiya01/revacc:latest` on Docker Hub
+- **Repository**: https://github.com/umeshdahiya15/Revacc (public)
 
 ---
 
-## Pipeline Overview
+## Architecture (current)
 
-**Revacc** is a full-stack reverse-vaccinology pipeline for *Streptococcus agalactiae* (Group B Streptococcus) that screens a pathogen's proteome through 14 phases (50 steps) to design multi-epitope vaccine (MEV) candidates.
+| Component | Technology | Notes |
+|-----------|------------|-------|
+| **Backend API** | Python 3.13, FastAPI | In-memory job/session store — no external database required |
+| **Frontend** | Next.js 14, React | Served by the same container on port 3000 |
+| **BLAST+** | System `blastp` / `makeblastdb` | Bundled in the image |
+| **PSORTb 3.0** | Full offline runtime transplant | perl 5.22 + BioPerl + PSORTb modules + `pfscan` + legacy `blastall` and its NCBI lib closure; adapter normalizes the PSORTbClient invocation |
+| **Reference DBs** | Baked at build time | DEG10, reviewed human proteome, VFDB (`prefetch_dbs.py`) |
+| **Clustering** | Local Python greedy clustering | cd-hit-equivalent algorithm in `app/tools/cdhit.py` (provenance notes when the native binary is absent) |
+| **MHC binding** | IEDB web services | Requires internet; exponential backoff on rate limits |
+| **Structure** | AlphaFold DB / SwissModel | Local ODE fallbacks keep runs progressing when services degrade |
 
-### Architecture Components
+**Distribution model**: one container, two ports —
 
-| Component | Technology | Status |
-|-----------|------------|--------|
-| **Backend API** | Python 3.13, FastAPI | ✅ Operational |
-| **Frontend** | Next.js 14, React | ✅ Operational |
-| **Database** | PostgreSQL 16 | ✅ Operational |
-| **Cache** | Redis 7 | ✅ Operational |
-| **Task Queue** | Celery | ✅ Operational |
-| **Reverse Proxy** | Nginx 1.27 | ✅ Operational |
-| **CI/CD** | GitHub Actions | ✅ Configured |
-| **Container Registry** | GitHub Container Registry | ✅ Configured |
+```bash
+docker pull umeshdahiya01/revacc:latest
+docker run -d --name revacc-pipeline -p 3000:3000 -p 8000:8000 umeshdahiya01/revacc:latest
+```
+
+> Legacy files (`docker-compose.yml`, `nginx.conf`, `vercel.json`) remain in the
+> repository but are **not required and not part of the supported path**. Follow
+> `START.md` / `QUICKSTART.md`.
 
 ---
 
 ## Test Results
 
-### Summary
-
 | Metric | Value |
 |--------|-------|
-| **Total Tests** | 130 |
-| **Passing** | 130 ✅ |
+| **Total backend tests** | **219** |
+| **Passing** | **219 ✅** |
 | **Failing** | 0 |
-| **Warnings** | 3 (non-critical) |
 
-### Test Suites
+Suites cover phase runners (1–14), cross-cutting filter preservation, IEDB cache
+and fallback behaviour, SwissModel resilience/lifecycle, structure providers,
+surface-union regression, PSORTb client contracts, and API/CORS/WebSocket
+behaviour.
 
-| Test Suite | Tests | Status |
-|------------|-------|--------|
-| Smoke Tests | 2 | ✅ All Passing |
-| Pipeline Integration | 5 | ✅ All Passing |
-| Filter Preservation | 9 | ✅ All Passing |
-| IEDB Cache Tests | 6 | ✅ All Passing |
-| SwissModel Tests | 30+ | ✅ All Passing |
-| Structure Provider | 15+ | ✅ All Passing |
-| Other Tests | 63+ | ✅ All Passing |
+### Recent fixes
 
-### Recent Fixes Applied
-
-1. **DEG Identity Threshold Test**
-   - **Issue**: Test expected threshold of 20.0, but implementation uses 40.0
-   - **Fix**: Updated test to match paper standard (Barazesh et al. 2024)
-   - **File**: `backend/tests/test_filter_preservation.py`
-
-2. **DEG Exclusion Test**
-   - **Issue**: Test used 20% identity for mock data, but threshold is 40%
-   - **Fix**: Updated mock data to use 40% identity
-   - **File**: `backend/tests/test_filter_preservation.py`
-
----
-
-## Pipeline Components Status
-
-### GitHub Actions Workflows
-
-#### 1. Docker Image CI (`docker-image.yml`)
-- **Trigger**: Push to `main` or pull requests to `main`
-- **Action**: Builds Docker image for testing
-- **Status**: ✅ Configured correctly
-
-#### 2. Publish Backend Image (`publish-backend-image.yml`)
-- **Trigger**: Push to `main` or version tags (`v*`)
-- **Action**: Builds and publishes to GitHub Container Registry
-- **Features**:
-  - Multi-platform support (Docker Buildx)
-  - Semantic versioning tags
-  - SHA-based tags for exact commits
-  - Latest tag for default branch
-- **Status**: ✅ Configured correctly
-
-### Docker Configuration
-
-#### Dockerfile
-- **Base Image**: Python 3.13-slim
-- **Dependencies**: BLAST+, BioPython, FastAPI, etc.
-- **Security**: Runs as non-root user
-- **Status**: ✅ Optimized
-
-#### Docker Compose
-- **Services**: PostgreSQL, Redis, API, Worker, Nginx
-- **Volumes**: Persistent data storage
-- **Networking**: Internal service communication
-- **Status**: ✅ Configured correctly
-
-### Deployment Platforms
-
-#### Vercel (Frontend)
-- **Framework**: Next.js 14
-- **Environment Variables**: `NEXT_PUBLIC_API_URL`
-- **Status**: ✅ Ready for deployment
-
-#### Railway (Backend)
-- **Runtime**: Python 3.13
-- **Port**: Dynamic (provided by Railway)
-- **Environment Variables**: `MEV_CORS_ORIGINS`
-- **Status**: ✅ Ready for deployment
-
----
-
-## Configuration Files
-
-### Verified Configuration
-
-| File | Purpose | Status |
-|------|---------|--------|
-| `package.json` | Node.js dependencies | ✅ Correct |
-| `backend/requirements.txt` | Python dependencies | ✅ Correct |
-| `vercel.json` | Vercel deployment | ✅ Correct |
-| `docker-compose.yml` | Docker services | ✅ Correct |
-| `Dockerfile` | Container build | ✅ Correct |
-| `.github/workflows/*.yml` | CI/CD pipelines | ✅ Correct |
-| `vitest.config.ts` | Test configuration | ✅ Correct |
-| `.eslintrc.json` | Linting rules | ✅ Correct |
-| `next.config.mjs` | Next.js configuration | ✅ Correct |
-| `nginx.conf` | Reverse proxy | ✅ Correct |
-
-### Environment Variables
-
-#### Required for Production
-```bash
-# Backend (Railway)
-MEV_CORS_ORIGINS=https://your-frontend.vercel.app
-
-# Frontend (Vercel)
-NEXT_PUBLIC_API_URL=https://your-backend.up.railway.app
-```
-
-#### Optional
-```bash
-# External APIs
-NCBI_EMAIL=your-email@example.com
-NCBI_API_KEY=your-ncbi-api-key
-EBI_EMAIL=your-email@example.com
-
-# Tool Configuration
-PSORTB_BIN=/path/to/psortb
-SWISSMODEL_API_TOKEN=your-token
-```
+1. **Zero-input provenance** — empty/normal returns now carry real provenance so
+   valid zero-input analyses (e.g. step 3-1 with no essential proteins after
+   filtering) complete instead of pausing with "unavailable" inputs.
+2. **`run_14_1` hardening** — tolerates absent job/step context; the local ODE
+   immune-response model completes without external services.
+3. **UTF-8 hardening** — subprocess output decoded with `errors="replace"` so
+   odd bytes from VFDB/BLAST tooling can never crash a step.
+4. **DEG identity threshold test** — updated to the implemented 40% threshold
+   (Barazesh et al. 2024).
 
 ---
 
 ## Pipeline Thresholds
 
-All thresholds are calibrated to match Barazesh et al. 2024:
+All thresholds are calibrated to Barazesh et al. 2024:
 
 | Parameter | Value | Status |
 |-----------|-------|--------|
@@ -172,102 +85,63 @@ All thresholds are calibrated to match Barazesh et al. 2024:
 
 ---
 
-## Documentation
+## Validation
 
-### Created Documentation
-
-| File | Purpose | Status |
-|------|---------|--------|
-| `PIPELINE_SETUP.md` | Complete setup guide | ✅ Created |
-| `PIPELINE_STATUS.md` | Status report | ✅ Created |
-| `HANDOVER.md` | Technical handover | ✅ Exists |
-| `README.md` | Project overview | ✅ Exists |
-| `backend/README.md` | Backend documentation | ✅ Exists |
-
-### Documentation Highlights
-
-1. **Quick Start Options**: 3 methods (local, Docker, one-command)
-2. **Detailed Setup**: Step-by-step instructions for all components
-3. **Configuration Guide**: All environment variables documented
-4. **Troubleshooting**: Common issues and solutions
-5. **API Reference**: Complete endpoint documentation
-6. **Deployment Options**: Vercel, Railway, Docker, GHCR
-7. **Known Issues**: Documented with workarounds
+- **Full 50-step run**: end-to-end validation executed against the published
+  image (taxon 208435, *Streptococcus agalactiae*) — all 50 steps complete,
+  0 failed / 0 paused.
+- **PSORTb equivalence**: results inside the image are byte-identical to the
+  reference `brinkmanlab/psortb_commandline` image on real VFDB sequences
+  (e.g. `Cellwall 8.76`, `Cytoplasmic 9.67`), verified at build time by a
+  smoke-test layer that fails the build on regression.
+- **Baked DBs verified**: `deg10_bacteria`, `human_reviewed`, `vfdb_core`
+  present in `/opt/mev-blastdb` and `/opt/mev-vfdb`.
 
 ---
 
 ## Known Issues (Documented)
 
 ### 1. Essential Gene Gap
-- **Issue**: 507 essential proteins vs paper's 1336
+- **Issue**: 507 essential proteins vs the paper's 1336
 - **Impact**: Different MEV composition
-- **Status**: Documented in `HANDOVER.md`
-- **Workaround**: None needed (different analysis approach)
+- **Status**: Documented in `HANDOVER.md`; different analysis approach, not a defect
 
-### 2. Surface-Exposed Gap
-- **Issue**: 75 surface-exposed vs paper's 408
-- **Impact**: Fewer surface candidates
-- **Status**: Documented in `HANDOVER.md`
-- **Workaround**: Consider integrating PSORTb v6.0
+### 2. Surface-Exposed Candidates
+- **Issue**: Historically only 75 surface-exposed vs the paper's 408 (no PSORTb)
+- **Status**: **Resolved** — PSORTb 3.0 is now bundled in the image with a full
+  offline runtime; subcellular localization runs natively in step 2-2
 
-### 3. IEDB API Rate Limiting
-- **Issue**: HTTP 500/429 errors during burst requests
-- **Impact**: Occasional pipeline pauses
-- **Status**: Mitigated with retry logic
-- **Workaround**: Built-in exponential backoff
+### 3. External Services Require Internet
+- **IEDB** (steps 5-1, 6-1): MHC binding prediction via tools.iedb.org —
+  exponential backoff on HTTP 429/500
+- **EBI Phobius** (step 2-4): bounded by a step timeout; PSORTb positives are
+  retained regardless of Phobius availability
+- **UniProt / NCBI / SwissModel**: downloads during phases 1 and 11
+- Everything else (BLAST DBs, PSORTb, clustering, ODE fallbacks) runs offline
 
 ### 4. MEV Length Difference
-- **Issue**: 336 aa vs paper's 620 aa
-- **Impact**: Shorter MEV construct
+- **Issue**: 336 aa vs the paper's 620 aa
 - **Status**: Documented in `HANDOVER.md`
-- **Workaround**: Consider adding signal peptide option
 
 ---
 
-## Next Steps
+## Documentation
 
-### Immediate Actions
-
-1. ✅ **Fix failing tests** - Completed
-2. ✅ **Create setup documentation** - Completed
-3. ✅ **Verify CI/CD pipelines** - Completed
-
-### Recommended Actions
-
-1. **Deploy to staging environment**
-   - Test full pipeline end-to-end
-   - Verify external API integrations
-   - Performance testing
-
-2. **Address known issues**
-   - Investigate DEG essential gene gap
-   - Consider PSORTb integration
-   - Add signal peptide option
-
-3. **Enhancements**
-   - Add ability to compare multiple runs
-   - Improve PDF report generation
-   - Add local MHC binding prediction fallback
+| File | Purpose |
+|------|---------|
+| [`START.md`](START.md) | **Primary setup guide** — one-liner, `docker run`, build-from-source, ports, troubleshooting |
+| [`QUICKSTART.md`](QUICKSTART.md) | Shortest path to a running instance |
+| [`README.md`](README.md) | Project overview |
+| [`PIPELINE_SETUP.md`](PIPELINE_SETUP.md) | Detailed component setup |
+| [`HANDOVER.md`](HANDOVER.md) | Technical handover and design decisions |
+| [`backend/README.md`](backend/README.md) | Backend documentation |
 
 ---
 
-## Conclusion
+## Status
 
-The Revacc pipeline is **fully functional** and ready for deployment. All tests are passing, documentation is complete, and CI/CD pipelines are correctly configured. The pipeline successfully implements the reverse-vaccinology approach as described in Barazesh et al. 2024.
-
-### Key Achievements
-
-- ✅ 130/130 tests passing
-- ✅ Complete setup documentation created
-- ✅ CI/CD pipelines verified
-- ✅ All thresholds calibrated to paper standard
-- ✅ Multiple deployment options documented
-- ✅ Known issues documented with workarounds
-
-### Ready for Production
-
-The pipeline is ready for:
-- ✅ Frontend deployment on Vercel
-- ✅ Backend deployment on Railway
-- ✅ Container deployment via GHCR
-- ✅ Self-hosted deployment via Docker Compose
+- ✅ **219/219 tests passing**
+- ✅ **PSORTb, BLAST+ and reference DBs bundled — no tool installation needed**
+- ✅ **Full 50-step validation completed on the published image**
+- ✅ **Public repo + Docker Hub image — recipients need only Docker**
+- ✅ Thresholds calibrated to Barazesh et al. 2024

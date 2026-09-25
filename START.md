@@ -27,7 +27,7 @@ Docker is required to run the pipeline. Choose your operating system:
 sudo apt-get update
 
 # Install Docker
-sudo apt-get install docker.io docker-compose-plugin
+sudo apt-get install docker.io
 
 # Add your user to docker group (logout and login after this)
 sudo usermod -aG docker $USER
@@ -43,7 +43,7 @@ docker --version
 # Should show: Docker version 20.10 or later
 ```
 
-> Docker Compose is only needed for the optional "clone repository" method.
+> Docker Compose is only needed for the optional "clone repository" method (Options A and B need only Docker itself). If your distro ships it: `sudo apt-get install docker-compose-v2`; otherwise follow https://docs.docker.com/compose/install/ — or simply use Option A/B, which don't need Compose.
 
 ---
 
@@ -276,10 +276,14 @@ curl -X POST http://localhost:8000/api/jobs/{job_id}/start
 curl http://localhost:8000/api/jobs/{job_id}
 ```
 
-### Download Report
+### Get Epitopes
 ```bash
-curl http://localhost:8000/api/jobs/{job_id}/report/pdf --output report.pdf
+curl http://localhost:8000/api/jobs/{job_id}/epitopes
 ```
+
+### Download Report
+Open the finished job in the UI and click **Export report** — the PDF is
+generated in your browser (no backend endpoint involved).
 
 ---
 

@@ -158,7 +158,10 @@ docker compose down
 | POST | `/api/jobs/{id}/pause` | Pause pipeline |
 | POST | `/api/jobs/{id}/resume` | Resume pipeline |
 | GET | `/api/jobs/{id}/epitopes` | Get epitopes |
-| GET | `/api/jobs/{id}/report/pdf` | Download report |
+| GET | `/api/jobs/{id}/events` | Job event log |
+| POST | `/api/jobs/{id}/steps/{step}/retry` | Retry a paused/failed step |
+
+> The PDF report is generated client-side from the UI's **Export report** button.
 
 ---
 

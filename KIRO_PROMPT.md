@@ -122,7 +122,7 @@ POST /api/jobs                    # Create job
 GET  /api/jobs/{id}               # Get job status + funnel + epitopes + MEV
 POST /api/jobs/{id}/start         # Start pipeline
 POST /api/jobs/{id}/resume        # Resume after pause
-GET  /api/jobs/{id}/report/pdf    # Download PDF report
+GET  /api/jobs/{id}/epitopes      # Predicted epitopes (PDF export runs in the UI)
 ```
 
 ### Known Issues to Address

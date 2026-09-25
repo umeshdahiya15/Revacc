@@ -319,7 +319,7 @@ class Engine:
                 )
             step.status = "success"
             step.percent = 100
-            step.duration = int(result.get("duration", 1)) or 1
+            step.duration = int(result.get("duration") or result.get("elapsed_sec") or 1) or 1
             step.completedAt = _now_iso()
             step.result = {k: v for k, v in result.items() if k != "duration"}
             await self._emit(

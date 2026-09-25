@@ -56,7 +56,7 @@ def run_pipeline_step(job_id: str, step_id: str, timeout: float = 120.0) -> dict
         result = run_runner(job, step, timeout=runner_timeout(step_id))
         step.status = "success"
         step.percent = 100
-        step.duration = int(result.get("duration", 1)) or 1
+        step.duration = int(result.get("duration") or result.get("elapsed_sec") or 1) or 1
         step.result = result
         repo.upsert(job)
 
